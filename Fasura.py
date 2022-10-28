@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 import numpy as np
-from PolarCode2 import PolarCode
+from PolarCode import PolarCode
 from utility import bin2dec, dec2bin, crcEncoder, crcDecoder
 
 
-class FASURA():
-    def __init__(self, K, nPilots, B, Bf, L, nc, nL, M, sigma2, H):
+class FASURA:
+    def __init__(self, K, n_Pilots, B, Bf, L, nc, nL, M, sigma2, H, P, A, nChanl_uses):
         self.K = K
         self.Bf = Bf  # number of bits of the first part of the message
         self.Bs = B - Bf  # number of bits of the second part of the message
@@ -13,19 +13,22 @@ class FASURA():
         self.J = 2 ** Bf  # Number of spreading sequence
         self.nc = nc  # length of code
         self.nL = nL  # List size
-        self.nChanlUses = int((nc / np.log2(4)) * L + nPilots)
+        # self.nChanlUses = int((nc / np.log2(4)) * L + nPilots)
+        self.nChanlUses = nChanl_uses
         self.nDataSlots = int(nc / np.log2(4))
         self.M = M  # Number of antennas
-        self.nPilots = nPilots  # number of pilot symbols
+        self.nPilots = n_Pilots  # number of pilot symbols
 
-        self.S = (1 - 2 * np.round(np.random.randint(low=0, high=2, size=(self.nChanlUses, self.J)))) + 1j * (
-                1 - 2 * np.round(np.random.randint(low=0, high=2, size=(self.nChanlUses, self.J))))
+        # self.S = (1 - 2 * np.round(np.random.randint(low=0, high=2, size=(self.nChanlUses, self.J)))) + 1j * (
+        #         1 - 2 * np.round(np.random.randint(low=0, high=2, size=(self.nChanlUses, self.J))))
 
         # Pilots
-        self.P = self.S[0:self.nPilots, :] / np.sqrt(2.0 * self.nChanlUses)
+        # self.P = self.S[0:self.nPilots, :] / np.sqrt(2.0 * self.nChanlUses)
+        self.P = P
 
         # spreading sequence master set
-        self.A = self.S[self.nPilots::, :] / np.sqrt(4.0 * self.nChanlUses)
+        # self.A = self.S[self.nPilots::, :] / np.sqrt(4.0 * self.nChanlUses)
+        self.A = A
 
         # Polynomial for CRC coding
         if K <= 300:
@@ -47,21 +50,22 @@ class FASURA():
 
         self.msgs = np.zeros((K, Bf + self.Bs))  # Store the active messages
         self.msgsHat = np.zeros((K, Bf + self.Bs))  # Store the recovered messages
-        self.count = 0  # Count the number of recovered msgs in this round
+        # self.count = 0  # Count the number of recovered msgs in this round
         self.Y = np.zeros((self.nChanlUses, M))
-        self.idxSSDec = np.array([], dtype=int)
-        self.idxSSHat = np.array([], dtype=int)  # To store the new recovered sequences
+        # self.idxSSDec = np.array([], dtype=int)
+        # self.idxSSHat = np.array([], dtype=int)  # To store the new recovered sequences
         self.symbolsHat = np.zeros((self.K, self.nDataSlots), dtype=complex)
-        self.NOPICE = 1
+        self.NOPICE = 0
+        # self.check = 0  # Stopping condition when two subsequent SIC rounds have no new detections!
 
     def transmitter(self, msgBin, H):
 
-        '''
+        """
         Function to encode the messages of the users
         Inputs: 1. the message of the users in the binary form, dimensions of msgBin, K x B
                 2. Channel
         Output: The sum of the channel output before noise, dimensions of Y, n x M
-        '''
+        """
 
         # ===================== Initialization ===================== #
         Y = np.zeros((self.nChanlUses, self.M), dtype=complex)
@@ -79,7 +83,6 @@ class FASURA():
 
             # --- Find index of the spreading sequence
             idxSS = bin2dec(mf)
-
             # --- Add CRC
             msgCRC = crcEncoder(ms, self.divisor)
 
@@ -113,30 +116,72 @@ class FASURA():
 
         return Y
 
+
+    def pilot_transmitter(self, msgBin , H):
+
+        Y_pilots = np.zeros((self.nPilots, self.M), dtype=complex)
+        # --- For all active users
+        for k in range(self.K):
+
+            # --- Save the active message k
+            self.msgs[k, :] = msgBin[k, :]
+
+            # --- Break the message into to 2 parts
+            # First part, Second part
+            mf = msgBin[k, 0:self.Bf]
+
+            # --- Find index of the spreading sequence
+            idxSS = bin2dec(mf)
+
+            # --- Initialize two temp Matrices
+            YTempPilots = np.zeros((self.nPilots, self.M), dtype=complex)
+
+            # --- For Pilots (PH)
+            for m in range(self.M):
+                YTempPilots[:, m] += self.P[:, idxSS] * H[k, m]
+
+            #Additive channel
+
+            Y_pilots += Y_pilots + YTempPilots
+        return Y_pilots
+
+
     def receiver(self, Y):
 
-        '''
+        """
         Function to recover the messages of the users from noisy observations
         Input:  The received signal, dimensions of Y, n x M
         Output: Probability of Detection and False Alarm
-        '''
+        """
+
 
         # --- Save the received signal
         self.Y = Y.copy()
-
+        self.count = 0  # Count the number of recovered msgs in this round
+        self.idxSSDec = np.array([], dtype=int)
+        self.idxSSHat = np.array([], dtype=int)
+        self.check = 0  # Stopping condition when two subsequent SIC rounds have no new detections!
         # =========================================== Receiver  =========================================== #
         while True:
 
-            # ======================== Pilot / Spreading Sequence Detector ======================== #
-            self.idxSSHat = energyDetector(self, self.Y, self.K - self.count)
 
+            if not self.check:
+                temp = self.count
+                self.check = 1
+
+            # ======================== Pilot / Spreading Sequence Detector ======================== #
+
+
+            self.idxSSHat = energyDetector(self, self.Y, self.K - self.count)
             # ======================== Channel estimation (Pilots) ======================== #
             HhatNew = channelEst(self)
 
             # ======================== Symbol estimation and Polar Code ======================== #
             userDecRx, notUserDecRx, symbolsHatHard, msgsHat2Part = decoder(self, HhatNew, self.idxSSHat)
+            # print("Here-0",userDecRx,symbolsHatHard.shape)
 
             # ======================== NOPICE without Polar Decoder since is done above ======================== #
+
             if self.NOPICE:
 
                 # --- Estimate the channel using P and Q
@@ -154,10 +199,21 @@ class FASURA():
             # --- Add the new indices
             self.idxSSDec = np.append(self.idxSSDec, self.idxSSHat[userDecRx])
 
+            # Extra added lines. DO NOT ERASE. But something is wrong.
+            # print("test-0", userDecRx, self.idxSSDec)
+            if len(self.idxSSDec) > self.K:
+
+                diff = len(self.idxSSDec) - self.K
+                self.idxSSDec = self.idxSSDec[0:self.K]
+                userDecRx = userDecRx[0:len(self.idxSSDec)]
+
+            # print("test-1",userDecRx, self.idxSSDec)
+
             # ======================== Exit Condition ======================== #
             # --- No new decoded user
             if userDecRx.size == 0:
-                print('=== Done ===')
+                # print('=== Done1 ===')
+                # Why check performance here? Directly declare DE = 0, FA = 0
                 DE, FA = checkPerformance(self)
                 return DE, FA, self.count
 
@@ -165,6 +221,7 @@ class FASURA():
             # --- Estimate the channel of the correct users
             # Use the received signal
             self.Y = Y.copy()
+            # print("Here-1", self.count,userDecRx)
             HhatNewDec = channelEstWithDecUsers(self, Y, self.idxSSDec, symbolsHatHard[userDecRx])
 
             # ================================== SIC ================================== #
@@ -174,14 +231,12 @@ class FASURA():
                 if msgsHat2Part.shape[0] == 1:
                     if not isIncluded(self, msgsHat2Part, self.idxSSHat[userDecRx]):
                         Hsub = np.squeeze(HhatNewDec.reshape(self.M, 1))
-
                         subInter(self, np.squeeze(symbolsHatHard), self.idxSSHat, Hsub)
                         saveUser(self, msgsHat2Part, self.idxSSHat[userDecRx])
-
                 # More than one user left
                 else:
                     if not isIncluded(self, msgsHat2Part[userDecRx, :], self.idxSSHat[userDecRx]):
-                        Hsub = np.squeeze(HhatNewDec)
+                        Hsub = HhatNewDec
                         subInter(self, np.squeeze(symbolsHatHard[userDecRx, :]), self.idxSSHat[userDecRx], Hsub)
                         saveUser(self, msgsHat2Part[userDecRx, :], self.idxSSHat[userDecRx])
 
@@ -196,15 +251,16 @@ class FASURA():
 
             # ======================== Find the performance ======================== #
             de, fa = checkPerformance(self)
-            print('Number of Detections: ' + str(de))
-            print('Number of False Alarms: ' + str(fa))
-            print()
+            # print('Number of Detections: ' + str(de))
+            # print('Number of False Alarms: ' + str(fa))
 
             # ======================== Exit Condition ======================== #
-            if self.count == self.K:
-                print('=== Done ===')
+            if self.count == self.K or temp == self.count:
+                # print('=== Done2 ===')
                 DE, FA = checkPerformance(self)
                 return DE, FA, self.count
+            else:
+                self.check = 0
 
 
 # ============================================ Functions ============================================ #
@@ -214,17 +270,18 @@ def QPSK(data):
     data = np.reshape(data, (2, -1))
     symbols = 1.0 - 2.0 * data
 
-    return (symbols[0, :] + 1j * symbols[1, :])
+    return symbols[0, :] + 1j * symbols[1, :]
 
 
 def LMMSE(y, A, Qx, Qn):
-    '''
+
+    """
         Function that implements the LMMSE Traditional and Compact Form estimator
         for the system y = Ax + n
 
         Input: y: received vector, A: measurement matrix, Qx: covariance of x, Qn: covariance of the noise
         Output: xHat: estimate of x, MSE: covariance matrix of the error
-    '''
+    """
 
     r, c = A.shape
 
@@ -289,8 +346,13 @@ def subInter(self, symbols, idxSS, h):
     YTempPilots = np.zeros((self.nPilots, self.M), dtype=complex)
     YTempSymbols = np.zeros((self.nDataSlots * self.L, self.M), dtype=complex)
 
+    # Temporary fix: Need to check LMMSE dimensions when only one user is present
+
+    h = np.reshape(h, (self.M, 1))
+
     # --- For Pilots
     for m in range(self.M):
+
         YTempPilots[:, m] = np.squeeze(self.P[:, idxSS]) * h[m]
 
     # --- For Symbols
@@ -309,6 +371,7 @@ def saveUser(self, msg2Part, idxSS):
     self.msgsHat[self.count, :] = np.concatenate(
         (np.squeeze(dec2bin(np.array([idxSS]), self.Bf)), np.squeeze(msg2Part)), 0)
     self.count += 1
+
 
 
 def checkPerformance(self):
@@ -365,26 +428,33 @@ def channelEstWithErrors(self, symbolsHatHard):
 
 
 def channelEstWithDecUsers(self, Y, decUsersSS, symbolsHatHard):
+
+    # print("Here-2", self.count, symbolsHatHard.shape)
+
     for i in range(self.count - 1, -1, -1):
+
         symbolsHatHard = np.vstack((self.symbolsHat[i, :], symbolsHatHard))
+
+    # K = Only detected users
 
     K = decUsersSS.size
 
     # -- Create A
     A = np.zeros((self.nChanlUses, K), dtype=complex)
+
     for k in range(K):
+
         Atemp = np.zeros((self.nDataSlots * self.L), dtype=complex)
+
         for t in range(self.nDataSlots):
             if K > 1:
-                Atemp[t * self.L: (t + 1) * self.L] = self.A[t * self.L: (t + 1) * self.L, decUsersSS[k]] * \
-                                                      symbolsHatHard[k, t]
+                Atemp[t * self.L: (t + 1) * self.L] = self.A[t * self.L: (t + 1) * self.L, decUsersSS[k]] * symbolsHatHard[k, t]
             else:
-                Atemp[t * self.L: (t + 1) * self.L] = np.squeeze(
-                    self.A[t * self.L: (t + 1) * self.L, decUsersSS] * symbolsHatHard[t])
+                Atemp[t * self.L: (t + 1) * self.L] = (self.A[t * self.L: (t + 1) * self.L, decUsersSS[k]] * symbolsHatHard[:,t])
         if K > 1:
             A[:, k] = np.hstack((self.P[:, decUsersSS[k]], Atemp))
         else:
-            A[:, k] = np.hstack((self.P[:, decUsersSS], Atemp))
+            A[:, k] = np.hstack((self.P[:, decUsersSS[k]], Atemp))
 
     Hhat = LMMSE(Y, A, np.eye(K), np.eye(self.nChanlUses) * self.sigma2)
 
@@ -396,7 +466,7 @@ def channelEstWithDecUsers(self, Y, decUsersSS, symbolsHatHard):
 
 # ==== Functions For Symbol Estimation
 def symbolsEst(Y, H, A, Qx, Qn, nSlots, L):
-    '''
+    """
         Function that implements the symbols estimation for spread-based MIMO system
 
         X: diagonal matrix contains the symbol for each user, H: channel matrix, N: noise
@@ -407,7 +477,7 @@ def symbolsEst(Y, H, A, Qx, Qn, nSlots, L):
                nSlots: number of slots which is equal to the number of symbols
                L: Length of the spreading sequence
         Output: xHat: estimate of x, MSE: covariance matrix of the error
-    '''
+    """
 
     K = H.shape[0]
 
@@ -421,7 +491,7 @@ def symbolsEst(Y, H, A, Qx, Qn, nSlots, L):
 
 
 def symbolEstSubRoutine(Y, H, S, Qx, Qn):
-    '''
+    """
         Function that implements the symbol estimation for spread-based MIMO system Y = SXH + N
         where Y: received matrix, S: spreading sequence matrix (only active columns),
         X: diagonal matrix contains the symbol for each user, H: channel matrix, N: noise
@@ -429,7 +499,7 @@ def symbolEstSubRoutine(Y, H, S, Qx, Qn):
         Input: Y: received vector, H: channel matrix, S: spreading sequence matrix ,
                Qx: covariance of x, Qn: covariance of the noise
         Output: xHat: estimate of x, MSE: covariance matrix of the error
-    '''
+    """
 
     K, M = H.shape  # K: number of users, M: number of antennas
     L = S.shape[0]  # L: length of the spreading sequence
@@ -458,11 +528,13 @@ def symbolEstSubRoutine(Y, H, S, Qx, Qn):
 # ==== Decoder
 def decoder(self, H, idxSSHat):
     K = idxSSHat.size
+
     symbolsHatHard = np.zeros((K, self.nDataSlots), dtype=complex)
 
     # ==================================== Symbol Estimation Decoder ============================================== #
     symbolsHat = symbolsEst(self.Y[self.nPilots::, :], H, self.A[:, idxSSHat], np.eye(K) * 2,
                             np.eye(self.L * self.M) * self.sigma2, self.nDataSlots, self.L)
+
 
     # ==================================== Channel Decoder ============================================== #
     userDecRx = np.array([], dtype=int)
@@ -480,10 +552,14 @@ def decoder(self, H, idxSSHat):
         # Call polar decoder
         cwordHatHard, isDecoded, msgHat = polarDecoder(self, cwordHatSoftInt, self.idxSSHat[s])
 
+        # What is this 256 condition?
+
         if isDecoded == 1 and sum(abs(((cwordHatSoftInt < 0) * 1 - cwordHatHard)) % 2) > 256:
             isDecoded = 0
+        # Why is it necessary to store all symbols including those of which that are not decoded?
 
         symbolsHatHard[s, :] = QPSK(cwordHatHard[self.interleaver[:, self.idxSSHat[s]]])
+
         msgsHat[s, :] = msgHat
 
         if isDecoded:
@@ -521,7 +597,10 @@ def polarDecoder(self, bitsHat, idxSSHat):
     if thres == np.Inf:
         # --- Return the message with the minimum PML
 
-        flag = np.squeeze(np.where(PML == PML.min()))
+
+
+        flag = np.argmin(PML)
+
 
     # --- Encode the estimated message
 

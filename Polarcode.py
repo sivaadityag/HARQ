@@ -11,7 +11,7 @@ class PolarCode():
         self.R = k / n
         self.N = int(np.log2(n))
         self.LLRs = np.zeros(self.n)
-       # --- Import Reliability  Sequence
+        # --- Import Reliability  Sequence
         if n <= 64:
             Q = np.flip(np.array(
                 [30, 32, 40, 44, 46, 47, 48, 52, 54, 55, 56, 58, 59, 60, 61, 62, 63, 64, 31, 28, 57, 24, 50, 53, 51, 45,
@@ -19,15 +19,21 @@ class PolarCode():
                  42, 29, 39, 27, 38, 26, 23,
                  36, 22, 49, 15, 20, 41, 14, 37, 12, 25, 8, 34, 21, 35, 19, 13, 18, 11, 6, 7, 10, 33, 4, 17, 9, 1, 5, 2,
                  3])) - 1
-        else:
+        elif n == 256:
+            Q = np.flip(np.genfromtxt("Q" + str(256) + ".csv", delimiter=','))-1
+
+        elif n == 512:
+            Q = np.flip(np.genfromtxt("Q" + str(512) + ".csv", delimiter=','))-1
+
+        elif n == 1024:
             Q = np.flip(np.genfromtxt("Q" + str(1024) + ".csv", delimiter=','))-1
-        #print("Polar code length:::",self.n)
+
         self.Q = Q[Q < n].astype(int)
-        print((self.Q[0]))
+        #print(max(self.Q))
         self.frozenPos = self.Q[0:n - self.k]
         #print("Hello2",len(self.frozenPos))
         self.msgPos = self.Q[n - self.k:n]
-        
+
     def encoder(self, msg, frozenValues, t):
 
         # --- Initialization
@@ -44,11 +50,10 @@ class PolarCode():
                 frozenValues = np.zeros(self.n - self.k)
 
         # Define the first bits of the codeword
-        #print("Checking msg shape:::",len(msg))
+        # print(codeword.shape,msg.shape)
         codeword[self.msgPos] = msg
         codeword[self.frozenPos] = frozenValues
-        
-        
+
         # --- Encode
         # Tree Structure
         # For each level
@@ -141,8 +146,9 @@ class PolarCode():
                     # --- Incoming belief length for left child
                     temp = int(temp / 2)
 
-                    # --- MinSum
-                    L[temp * node:temp * (node + 1), :, depth] = minSum(a, b).T
+                    # --- Sum - Product
+                    L[temp * node:temp * (node + 1), :, depth] = sumProd(a, b).T
+
 
                     stateVec[npos] = 1
 
@@ -200,17 +206,23 @@ class PolarCode():
                         depth = int(depth - 1)
         return uHat[self.msgPos, :, self.N].T, PML
 
-# ===================================== Functions for Decoders =========================== #
+    # ===================================== Functions for Decoders =========================== #
 
 
-def minSum(a, b):
-    # --- Sign
-    signA, signB = 1 - 2 * (1 * (a < 0)), 1 - 2 * (1 * (b < 0))
-    sign = np.multiply(signA, signB)
-    # --- Magnitude
-    magn = np.minimum(abs(a), abs(b))
 
-    return np.multiply(magn, sign)
+def sumProd(a, b):
+    max = np.maximum(abs(a),abs(b))
+
+    r,c = np.where(max < 38)
+
+    result = np.zeros((a.shape))
+    result[r,c] = 2*np.arctanh(np.multiply(np.tanh(a[r,c]/2.0), np.tanh(b[r,c]/2.0)))
+
+    r, c = np.where(max >= 38)
+    result[r,c] = minSum(a[r,c], b[r,c])
+
+    return result
+
 
 
 def g(a, b, c):
@@ -221,5 +233,15 @@ def minK(a, k):
     idx = (a).argsort()[:k]
     return idx, a[idx]
 
+
+
+def minSum(a, b):
+    # --- Sign
+    signA, signB = 1 - 2 * (1 * (a < 0)), 1 - 2 * (1 * (b < 0))
+    sign = np.multiply(signA, signB)
+    # --- Magnitude
+    magn = np.minimum(abs(a), abs(b))
+
+    return np.multiply(magn, sign)
 
 

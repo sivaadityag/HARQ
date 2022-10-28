@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 import numpy as np
-from PolarCode2 import PolarCode
+from Try.PolarCode2 import PolarCode
 from utility import crcEncoder, crcDecoder
 import matplotlib.pyplot as plt
-import sys
 
 # import random
 

@@ -1,6 +1,6 @@
 import numpy as np
-from Punctured_Pdecoder import Punctured_Pdecoder
-from Full_Pdecoder import Full_Pdecoder
+from Try.Punctured_Pdecoder import Punctured_Pdecoder
+from Try.Full_Pdecoder import Full_Pdecoder
 import matplotlib.pyplot as plt
 
 N=1024

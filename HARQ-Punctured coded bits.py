@@ -3,6 +3,7 @@
 import numpy as np
 from Fasura import FASURA
 import time
+from utility import bin2dec, dec2bin, crcEncoder, crcDecoder
 
 np.random.seed(0)
 # =========================================== Initialization =========================================== #
@@ -35,13 +36,13 @@ print("Number of channel uses::: " + str(nChanlUses))
 # Number of Antennas
 M = 4
 # EbN0dB
-EbN0dB = 1.25
+EbN0dB = -1
 
 # --- Variance of Noise
 sigma2 = 1.0 / ((10 ** (EbN0dB / 10.0)) * B)
 
 # Number of iterations
-nIter = 300
+nIter = 1
 
 # =========================================== Simulation =========================================== #
 start = time.time()
@@ -60,7 +61,7 @@ A = S[nPilots::, :] / np.sqrt(4.0 * nChanlUses)
 H = (1 / np.sqrt(2)) * (np.random.normal(0, 1, (K, M)) + 1j * np.random.normal(0, 1, (K, M)))
 
 
-rounds = 9
+rounds = 3
 
 resultsDE = np.zeros((nIter,rounds))
 resultsFA = np.zeros((nIter,rounds))
@@ -75,8 +76,6 @@ for Iter in range(nIter):
 
     print('======= Iteration number of the Monte Carlo Simulation: ' + str(Iter))
 
-    Y = np.zeros((nChanlUses, M), dtype=complex)
-
     for round in range(rounds):
 
         # print("HARQ round:", round)
@@ -84,236 +83,117 @@ for Iter in range(nIter):
         # Initialize the scheme and generate the entire "coded" message at once.
 
         if round == 0:
+            print("In round:::", round + 1)
+
             # --- Create a FASURA object
             scheme = FASURA(K, nPilots, B, Bf, L, nc, nL, M, sigma2, H, P, A, nChanlUses)
 
             # --- Encode the data just once and use the TX message in subsequent rounds
             global XH
+
             XH = scheme.transmitter(msgs, H)
 
             # --- Generate the noise
-            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2), (int(nChanlUses/2), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/2), M)))
+            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2), (int(nChanlUses), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses), M)))
 
+            # --- Full version of the transmitted Signal
 
-            # --- Transmitted Signal
+            Y = XH + N
 
-            Y_temp = XH[0:int(nChanlUses/2), :] + N
+            Y_final = Y.copy()
 
             # --- Preprocessing
 
-            for i in range(0, int(nChanlUses/2)):
-                Y[i, :] = Y_temp[i, :]
+            Y_temp1 = np.zeros((nChanlUses, M), dtype=complex)
+
+            for i in range(0, int((1/2) * nChanlUses)):
+                Y_temp1[i, :] = Y_final[i, :]
+
 
             # --- Decode
 
-            DE, FA, Khat = scheme.receiver(Y)
+            DE1, FA, Khat, Y_decoded1, XX1 = scheme.receiver(Y_temp1, 0, int((1/2) * nChanlUses), flag=0)
+            decoded_indices = np.array([], dtype=int)
+
+            for i in range(XX1.shape[0]):
+                decoded_indices = np.append(decoded_indices, int(bin2dec(XX1[i, 0:Bf])))
+
+            print("Round 1 status::", DE1, FA, Khat, XX1.shape, Y_decoded1.shape, decoded_indices)
+
+            # --- Pre processing for next round of Tx
+
+            Y_final = Y_final - Y_decoded1
 
             if Khat == 0:
                 resultsFA[Iter, round] = 0
                 resultsDE[Iter, round] = 0
             else:
                 resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE / K
+                resultsDE[Iter, round] = DE1 / K
 
         elif round == 1:
 
-            # --- Generate the noise
-            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16),M)))
-
-            # --- Transmitted Signal
-
-            Y_temp = XH[int(nChanlUses/2):int(9*nChanlUses/16), :] + N
+            print("In round:::", round+1)
 
             # --- Preprocessing
+            Y_temp2 = np.zeros((nChanlUses, M), dtype=complex)
 
-            for i in range(int(nChanlUses/2),int(9*nChanlUses/16)):
-                Y[i, :] = Y_temp[i-int(nChanlUses/2), :]
+            for i in range(0, int((3/4) * nChanlUses)):
+                Y_temp2[i, :] = Y_final[i, :]
 
             # --- Decode
 
-            DE, FA, Khat = scheme.receiver(Y)
+            DE2, FA, Khat, Y_decoded2, XX2 = scheme.receiver(Y_temp2, DE1, int((3/4) * nChanlUses), flag=1)
+
+            decoded_indices = np.array([], dtype=int)
+
+            for i in range(XX2.shape[0]):
+                decoded_indices = np.append(decoded_indices, int(bin2dec(XX2[i, 0:Bf])))
+
+            print("Round 2 status::", DE1+DE2, FA, Khat, XX2.shape, Y_decoded2.shape, decoded_indices)
+
+            # --- Pre processing for next round of Tx
+
+            Y_final = Y_final - Y_decoded2
 
             if Khat == 0:
                 resultsFA[Iter, round] = 0
                 resultsDE[Iter, round] = 0
             else:
                 resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE / K
+                resultsDE[Iter, round] = DE2 / K
 
         elif round == 2:
 
-            # --- Generate the noise
-            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)))
-
-            # --- Transmitted Signal
-
-            Y_temp = XH[int(9 * nChanlUses / 16):int(5 * nChanlUses / 8), :] + N
+            print("In round:::", round+1)
 
             # --- Preprocessing
+            Y_temp3 = np.zeros((nChanlUses, M), dtype=complex)
 
-            for i in range(int(9 * nChanlUses / 16), int(5 * nChanlUses / 8)):
-                Y[i, :] = Y_temp[i-int(9 * nChanlUses / 16), :]
+            for i in range(0, int(nChanlUses)):
+                Y_temp3[i, :] = Y_final[i, :]
 
             # --- Decode
 
-            DE, FA, Khat = scheme.receiver(Y)
+            DE3, FA, Khat, Y_decoded3, XX3 = scheme.receiver(Y_temp3, DE1+DE2, int(nChanlUses), flag=1)
+
+            decoded_indices = np.array([], dtype=int)
+
+            for i in range(XX3.shape[0]):
+                decoded_indices = np.append(decoded_indices, int(bin2dec(XX3[i, 0:Bf])))
+
+            print("Round 3 status::", DE1 + DE2 + DE3, FA, Khat, XX3.shape, Y_decoded3.shape, decoded_indices)
+
+            # --- Pre processing for next round of Tx
+
+            Y_final = Y_final - Y_decoded3
 
             if Khat == 0:
                 resultsFA[Iter, round] = 0
                 resultsDE[Iter, round] = 0
             else:
                 resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE / K
-
-        elif round == 3:
-
-            # --- Generate the noise
-            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)))
-
-            # --- Transmitted Signal
-
-            Y_temp = XH[int(5 * nChanlUses / 8):int(11 * nChanlUses / 16), :] + N
-
-            # --- Preprocessing
-
-            for i in range(int(5 * nChanlUses / 8), int(11 * nChanlUses / 16)):
-                Y[i, :] = Y_temp[i-int(5 * nChanlUses / 8), :]
-
-            # --- Decode
-
-            DE, FA, Khat = scheme.receiver(Y)
-
-            if Khat == 0:
-                resultsFA[Iter, round] = 0
-                resultsDE[Iter, round] = 0
-            else:
-                resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE / K
-
-        elif round == 4:
-
-            # --- Generate the noise
-            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)))
-
-            # --- Transmitted Signal
-
-            Y_temp = XH[int(11 * nChanlUses / 16):int(3 * nChanlUses / 4), :] + N
-
-            # --- Preprocessing
-
-            for i in range(int(11 * nChanlUses / 16), int(3 * nChanlUses / 4)):
-                Y[i, :] = Y_temp[i - int(11 * nChanlUses / 16), :]
-
-            # --- Decode
-
-            DE, FA, Khat = scheme.receiver(Y)
-
-            if Khat == 0:
-                resultsFA[Iter, round] = 0
-                resultsDE[Iter, round] = 0
-            else:
-                resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE / K
-
-        elif round == 5:
-
-            # --- Generate the noise
-            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)))
-
-            # --- Transmitted Signal
-
-            Y_temp = XH[int(3 * nChanlUses / 4):int(13 * nChanlUses / 16), :] + N
-
-            # --- Preprocessing
-
-            for i in range(int(3 * nChanlUses / 4), int(13 * nChanlUses / 16)):
-                Y[i, :] = Y_temp[i - int(3 * nChanlUses / 4), :]
-
-            # --- Decode
-
-            DE, FA, Khat = scheme.receiver(Y)
-
-            if Khat == 0:
-                resultsFA[Iter, round] = 0
-                resultsDE[Iter, round] = 0
-            else:
-                resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE / K
-
-        elif round == 6:
-
-            # --- Generate the noise
-            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)))
-
-            # --- Transmitted Signal
-
-            Y_temp = XH[int(13 * nChanlUses / 16):int(7 * nChanlUses / 8), :] + N
-
-            # --- Preprocessing
-
-            for i in range(int(13 * nChanlUses / 16), int(7 * nChanlUses / 8)):
-                Y[i, :] = Y_temp[i - int(13 * nChanlUses / 16), :]
-
-            # --- Decode
-
-            DE, FA, Khat = scheme.receiver(Y)
-
-            if Khat == 0:
-                resultsFA[Iter, round] = 0
-                resultsDE[Iter, round] = 0
-            else:
-                resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE / K
-
-        elif round == 7:
-
-            # --- Generate the noise
-            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)))
-
-            # --- Transmitted Signal
-
-            Y_temp = XH[int(7 * nChanlUses / 8):int(15 * nChanlUses / 16), :] + N
-
-            # --- Preprocessing
-
-            for i in range(int(7 * nChanlUses / 8), int(15 * nChanlUses / 16)):
-                Y[i, :] = Y_temp[i - int(7 * nChanlUses / 8), :]
-
-            # --- Decode
-
-            DE, FA, Khat = scheme.receiver(Y)
-
-            if Khat == 0:
-                resultsFA[Iter, round] = 0
-                resultsDE[Iter, round] = 0
-            else:
-                resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE / K
-
-        elif round == 8:
-
-            # --- Generate the noise
-            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses/16), M)))
-
-            # --- Transmitted Signal
-
-            Y_temp = XH[int(15 * nChanlUses / 16)::, :] + N
-
-            # --- Preprocessing
-
-            for i in range(int(15 * nChanlUses / 16), int(nChanlUses)):
-                Y[i, :] = Y_temp[i - int(15 * nChanlUses / 16), :]
-
-            # --- Decode
-
-            DE, FA, Khat = scheme.receiver(Y)
-
-            if Khat == 0:
-                resultsFA[Iter, round] = 0
-                resultsDE[Iter, round] = 0
-            else:
-                resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE / K
+                resultsDE[Iter, round] = DE3 / K
 
     np.savetxt('resultsDE.out',resultsDE)
     np.savetxt('resultsFA.out',resultsFA)

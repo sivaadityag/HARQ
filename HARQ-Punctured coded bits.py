@@ -8,10 +8,10 @@ from utility import bin2dec, dec2bin, crcEncoder, crcDecoder
 np.random.seed(0)
 # =========================================== Initialization =========================================== #
 # Number of active users
-K = 16
+K = 32
 
 # number of pilots (length of the pilots)
-nPilots = 400
+nPilots = 896
 
 # Spreading sequence length
 L = 9
@@ -21,7 +21,7 @@ nc = 512
 
 # Length of the message, Length of the First and Second part of the message
 B = 100
-Bf = 12
+Bf = 16
 Bs = B - Bf
 
 # Number of spreading sequence/ pilot sequence
@@ -36,7 +36,7 @@ print("Number of channel uses::: " + str(nChanlUses))
 # Number of Antennas
 M = 4
 # EbN0dB
-EbN0dB = -1
+EbN0dB = 5
 
 # --- Variance of Noise
 sigma2 = 1.0 / ((10 ** (EbN0dB / 10.0)) * B)
@@ -61,7 +61,7 @@ A = S[nPilots::, :] / np.sqrt(4.0 * nChanlUses)
 H = (1 / np.sqrt(2)) * (np.random.normal(0, 1, (K, M)) + 1j * np.random.normal(0, 1, (K, M)))
 
 
-rounds = 3
+rounds = 5
 
 resultsDE = np.zeros((nIter,rounds))
 resultsFA = np.zeros((nIter,rounds))
@@ -83,7 +83,6 @@ for Iter in range(nIter):
         # Initialize the scheme and generate the entire "coded" message at once.
 
         if round == 0:
-            print("In round:::", round + 1)
 
             # --- Create a FASURA object
             scheme = FASURA(K, nPilots, B, Bf, L, nc, nL, M, sigma2, H, P, A, nChanlUses)
@@ -100,117 +99,294 @@ for Iter in range(nIter):
 
             Y = XH + N
 
-            Y_final = Y.copy()
+            Y_final1 = Y.copy()
+            Y_final2 = Y.copy()
+
+            print("In round:::", round + 1)
 
             # --- Preprocessing
-
             Y_temp1 = np.zeros((nChanlUses, M), dtype=complex)
 
-            for i in range(0, int((1/2) * nChanlUses)):
-                Y_temp1[i, :] = Y_final[i, :]
-
+            for i in range(0, int((1 / 2) * nChanlUses)):
+                Y_temp1[i, :] = Y_final1[i, :]
 
             # --- Decode
 
-            DE1, FA, Khat, Y_decoded1, XX1 = scheme.receiver(Y_temp1, 0, int((1/2) * nChanlUses), flag=0)
-            decoded_indices = np.array([], dtype=int)
+            DE1, FA, Khat, Y_detected1, msgs1, Y_decoded1, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp1, 0, int((1 / 2) * nChanlUses), None)
 
-            for i in range(XX1.shape[0]):
-                decoded_indices = np.append(decoded_indices, int(bin2dec(XX1[i, 0:Bf])))
+            if HARQ_exit == 1:
+                break
 
-            print("Round 1 status::", DE1, FA, Khat, XX1.shape, Y_decoded1.shape, decoded_indices)
+            elif HARQ_curr == 1:
+                detected_indices = np.array([], dtype=int)
 
-            # --- Pre processing for next round of Tx
+                for i in range(msgs1.shape[0]):
+                    detected_indices = np.append(detected_indices, int(bin2dec(msgs1[i, 0:Bf])))
 
-            Y_final = Y_final - Y_decoded1
+                print("Round 1 status::", DE1, FA, Khat, msgs1.shape, detected_indices)
 
-            if Khat == 0:
-                resultsFA[Iter, round] = 0
-                resultsDE[Iter, round] = 0
+                # Pre-processing for next round
+
+                Y_final1 = Y_final1 - Y_decoded1
+                Y_final2 = Y_final2 - Y_detected1
+
             else:
-                resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE1 / K
+                print("Moving onto next round if available")
+                msgs1 = np.array([], dtype=int)
+            # if Khat == 0:
+            #     resultsFA[Iter, round] = 0
+            #     resultsDE[Iter, round] = 0
+            # else:
+            #     resultsFA[Iter, round] = FA / Khat
+            #     resultsDE[Iter, round] = DE1 / K
 
         elif round == 1:
 
-            print("In round:::", round+1)
+            print("In round:::", round + 1)
 
             # --- Preprocessing
             Y_temp2 = np.zeros((nChanlUses, M), dtype=complex)
 
-            for i in range(0, int((3/4) * nChanlUses)):
-                Y_temp2[i, :] = Y_final[i, :]
+            for i in range(0, int((1 / 2) * nChanlUses)):
+                Y_temp2[i, :] = Y_final1[i, :]
+
+            for i in range(int((1 / 2) * nChanlUses), int((5 / 8) * nChanlUses)):
+                Y_temp2[i, :] = Y_final2[i, :]
 
             # --- Decode
 
-            DE2, FA, Khat, Y_decoded2, XX2 = scheme.receiver(Y_temp2, DE1, int((3/4) * nChanlUses), flag=1)
+            # Check if empty detected msgs from previous rounds
 
-            decoded_indices = np.array([], dtype=int)
-
-            for i in range(XX2.shape[0]):
-                decoded_indices = np.append(decoded_indices, int(bin2dec(XX2[i, 0:Bf])))
-
-            print("Round 2 status::", DE1+DE2, FA, Khat, XX2.shape, Y_decoded2.shape, decoded_indices)
-
-            # --- Pre processing for next round of Tx
-
-            Y_final = Y_final - Y_decoded2
-
-            if Khat == 0:
-                resultsFA[Iter, round] = 0
-                resultsDE[Iter, round] = 0
+            if msgs1.shape[0] == 0:
+                old_msgs = None
             else:
-                resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE2 / K
+                old_msgs = msgs1
+
+            DE2, FA, Khat, Y_detected2, msgs2, Y_decoded2, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp2, DE1, int((5 / 8) * nChanlUses), old_msgs)
+
+            # Pre-processing for next round
+
+            if HARQ_exit == 1:
+                break
+
+            elif HARQ_curr == 1:
+
+                detected_indices = np.array([], dtype=int)
+
+                for i in range(msgs2.shape[0]):
+                    detected_indices = np.append(detected_indices, int(bin2dec(msgs2[i, 0:Bf])))
+
+                print("Round 2 status::", DE1 + DE2, FA, Khat, msgs2.shape, detected_indices)
+
+                # Pre-processing for next round
+
+                Y_final1 = Y_final1 - Y_decoded2
+                Y_final2 = Y_final2 - Y_detected2
+            else:
+                print("Moving onto next round if available")
+                msgs2 = np.array([], dtype=int)
+
+            # if Khat == 0:
+            #     resultsFA[Iter, round] = 0
+            #     resultsDE[Iter, round] = 0
+            # else:
+            #     resultsFA[Iter, round] = FA / Khat
+            #     resultsDE[Iter, round] = DE2 / K
 
         elif round == 2:
 
-            print("In round:::", round+1)
+            print("In round:::", round + 1)
 
             # --- Preprocessing
             Y_temp3 = np.zeros((nChanlUses, M), dtype=complex)
 
-            for i in range(0, int(nChanlUses)):
-                Y_temp3[i, :] = Y_final[i, :]
+            for i in range(0, int((5 / 8) * nChanlUses)):
+                Y_temp3[i, :] = Y_final1[i, :]
+
+            for i in range(int((5 / 8) * nChanlUses), int((6 / 8) * nChanlUses)):
+                Y_temp3[i, :] = Y_final2[i, :]
 
             # --- Decode
 
-            DE3, FA, Khat, Y_decoded3, XX3 = scheme.receiver(Y_temp3, DE1+DE2, int(nChanlUses), flag=1)
+            # Checking the status of previous round detected messages
 
-            decoded_indices = np.array([], dtype=int)
-
-            for i in range(XX3.shape[0]):
-                decoded_indices = np.append(decoded_indices, int(bin2dec(XX3[i, 0:Bf])))
-
-            print("Round 3 status::", DE1 + DE2 + DE3, FA, Khat, XX3.shape, Y_decoded3.shape, decoded_indices)
-
-            # --- Pre processing for next round of Tx
-
-            Y_final = Y_final - Y_decoded3
-
-            if Khat == 0:
-                resultsFA[Iter, round] = 0
-                resultsDE[Iter, round] = 0
+            if msgs1.shape[0] == 0:
+                if msgs2.shape[0] == 0:
+                    old_msgs = None
+                else:
+                    old_msgs = msgs2
             else:
-                resultsFA[Iter, round] = FA / Khat
-                resultsDE[Iter, round] = DE3 / K
+                if msgs2.shape[0] == 0:
+                    old_msgs = msgs1
+                else:
+                    old_msgs = np.vstack((msgs1, msgs2))
 
-    np.savetxt('resultsDE.out',resultsDE)
-    np.savetxt('resultsFA.out',resultsFA)
+            DE3, FA, Khat, Y_detected3, msgs3, Y_decoded3, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp3, DE1 + DE2, int((6 / 8) * nChanlUses), old_msgs)
 
-missed_det = np.zeros(rounds)
-false_alarm = np.zeros(rounds)
+            # Pre-processing for next round
 
-for round in range(rounds):
-    # print('Missed Detection')
-    missed_det[round] = sum(1 - resultsDE[:, round]) / float(nIter)
-    # print(missed_det[round])
+            if HARQ_exit == 1:
+                break
 
-    # print('False Alarm')
-    false_alarm[round] = sum(resultsFA[:, round]) / float(nIter)
-    # print(false_alarm[round])
+            elif HARQ_curr == 1:
+                detected_indices = np.array([], dtype=int)
 
-    print("Pe for round:", round , missed_det[round] + false_alarm[round])
+                for i in range(msgs3.shape[0]):
+                    detected_indices = np.append(detected_indices, int(bin2dec(msgs3[i, 0:Bf])))
+
+                print("Round 3 status::", DE1 + DE2 + DE3, FA, Khat, msgs3.shape, detected_indices)
+
+                # Pre-processing for next round
+
+                Y_final1 = Y_final1 - Y_decoded3
+
+                Y_final2 = Y_final2 - Y_detected3
+            else:
+                print("Moving onto next round if available")
+                msgs3 = np.array([], dtype=int)
+
+            # if Khat == 0:
+            #     resultsFA[Iter, round] = 0
+            #     resultsDE[Iter, round] = 0
+            # else:
+            #     resultsFA[Iter, round] = FA / Khat
+            #     resultsDE[Iter, round] = DE3 / K
+
+        elif round == 3:
+
+            print("In round:::", round + 1)
+
+            # --- Preprocessing
+            Y_temp4 = np.zeros((nChanlUses, M), dtype=complex)
+
+            for i in range(0, int((6 / 8) * nChanlUses)):
+                Y_temp4[i, :] = Y_final1[i, :]
+
+            for i in range(int((6 / 8) * nChanlUses), int((7 / 8) * nChanlUses)):
+                Y_temp4[i, :] = Y_final2[i, :]
+
+            # --- Decode
+            # Checking the status of previous round detected messages
+
+            if old_msgs is None:
+                if msgs3.shape[0] == 0:
+                    old_msgs = None
+                else:
+                    old_msgs = msgs3
+            else:
+                if msgs3.shape[0] == 0:
+                    # old_msgs remain as it is
+                    old_msgs = old_msgs
+                else:
+                    old_msgs = np.vstack((old_msgs, msgs3))
 
 
-print("Final simulation result",missed_det + false_alarm)
+            DE4, FA, Khat, Y_detected4, msgs4, Y_decoded4, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp4, DE1 + DE2 + DE3, int((7 / 8) * nChanlUses), old_msgs)
+
+            # Pre-processing for next round
+
+            if HARQ_exit == 1:
+                break
+
+            elif HARQ_curr == 1:
+                detected_indices = np.array([], dtype=int)
+
+                for i in range(msgs4.shape[0]):
+                    detected_indices = np.append(detected_indices, int(bin2dec(msgs4[i, 0:Bf])))
+
+                print("Round 4 status::", DE1 + DE2 + DE3 + DE4, FA, Khat, msgs4.shape, detected_indices)
+
+                # Pre-processing for next round
+
+                Y_final1 = Y_final1 - Y_decoded4
+
+                Y_final2 = Y_final2 - Y_detected4
+            else:
+                print("Moving onto next round if available")
+                msgs4 = np.array([], dtype=int)
+            # if Khat == 0:
+            #     resultsFA[Iter, round] = 0
+            #     resultsDE[Iter, round] = 0
+            # else:
+            #     resultsFA[Iter, round] = FA / Khat
+            #     resultsDE[Iter, round] = DE3 / K
+
+
+        elif round == 4:
+
+            print("In round:::", round + 1)
+
+            # --- Preprocessing
+
+            Y_temp5 = np.zeros((nChanlUses, M), dtype=complex)
+
+            for i in range(0, int((7 / 8) * nChanlUses)):
+                Y_temp5[i, :] = Y_final1[i, :]
+
+            for i in range(int((7 / 8) * nChanlUses), int((8 / 8) * nChanlUses)):
+                Y_temp5[i, :] = Y_final2[i, :]
+
+            # --- Decode
+
+            if old_msgs is None:
+                if msgs4.shape[0] == 0:
+                    old_msgs = None
+                else:
+                    old_msgs = msgs4
+            else:
+                if msgs4.shape[0] == 0:
+                    # old_msgs remain as it is
+                    old_msgs = old_msgs
+                else:
+                    old_msgs = np.vstack((old_msgs, msgs4))
+
+            DE5, FA, Khat, Y_detected5, msgs5, Y_decoded5, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp5, DE1 + DE2 + DE3 + DE4, int((8 / 8) * nChanlUses), old_msgs)
+
+            # Pre-processing for next round
+
+            if HARQ_exit == 1:
+                break
+
+            elif HARQ_curr == 1:
+
+                detected_indices = np.array([], dtype=int)
+
+                for i in range(msgs5.shape[0]):
+                    detected_indices = np.append(detected_indices, int(bin2dec(msgs5[i, 0:Bf])))
+
+                print("Round 5 status::", DE1 + DE2 + DE3 + DE4 + DE5, FA, Khat, msgs5.shape, detected_indices)
+
+                # Pre-processing for next round
+
+                Y_final1 = Y_final1 - Y_decoded5
+                Y_final2 = Y_final2 - Y_detected5
+            else:
+                print("Moving onto next round if available")
+                msgs5 = np.array([], dtype=int)
+            # if Khat == 0:
+            #     resultsFA[Iter, round] = 0
+            #     resultsDE[Iter, round] = 0
+
+            # else:
+            #     resultsFA[Iter, round] = FA / Khat
+            #     resultsDE[Iter, round] = DE3 / K
+
+#     np.savetxt('resultsDE.out',resultsDE)
+#     np.savetxt('resultsFA.out',resultsFA)
+#
+# missed_det = np.zeros(rounds)
+# false_alarm = np.zeros(rounds)
+#
+# for round in range(rounds):
+#     # print('Missed Detection')
+#     missed_det[round] = sum(1 - resultsDE[:, round]) / float(nIter)
+#     # print(missed_det[round])
+#
+#     # print('False Alarm')
+#     false_alarm[round] = sum(resultsFA[:, round]) / float(nIter)
+#     # print(false_alarm[round])
+#
+#     print("Pe for round:", round , missed_det[round] + false_alarm[round])
+#
+#
+# print("Final simulation result",missed_det + false_alarm)

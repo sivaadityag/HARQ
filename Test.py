@@ -62,17 +62,6 @@ import matplotlib.pyplot as plt
 # plt.legend(['K = 16, M = 4, Eb_NodB = 1.05'])
 # plt.xticks(nChannelUses)
 # plt.show()
-
-x = np.array([], dtype=([],int))
-
-abc = np.array([1,2,3])
-xyz = np.array([4,5,6])
-
-a = np.reshape(abc,(abc.shape[0],1))
-b = np.reshape(xyz,(xyz.shape[0],1))
-print(a,b,a.shape,b.shape)
-
-x = np.append(x, a, axis=1)
-x = np.append(x,b, axis=1)
-
-print(x, x.shape)
+a = np.array([[1,2,3],[4,5,6]])
+b = np.array([[1,2,3],[4,5,6]])
+print(np.vstack((a,b)))

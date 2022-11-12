@@ -85,6 +85,7 @@ class FASURA:
 
             # --- Find index of the spreading sequence
             idxSS = bin2dec(mf)
+            # print(idxSS)
 
             # --- Add CRC
             msgCRC = crcEncoder(ms, self.divisor)
@@ -148,7 +149,7 @@ class FASURA:
             Y_pilots += Y_pilots + YTempPilots
         return Y_pilots
 
-    def receiver(self, Y, decoded_users, harq_factor, flag):
+    def receiver(self, Y, decoded_users, harq_factor, prev_msgs):
 
         """
         Function to recover the messages of the users from noisy observations
@@ -159,134 +160,109 @@ class FASURA:
         # --- Save the received signal
         self.Y = Y.copy()
         self.count = 0  # Count the number of recovered msgs in this round
-        early_detec = decoded_users
+        early_detec = decoded_users # HARQ parameter
         self.idxSSDec = np.array([], dtype=int)
         self.idxSSHat = np.array([], dtype=int)
-        self.check = 0  # Stopping condition when two subsequent SIC rounds have no new detections!
         self.Y_contrib = np.zeros((self.nChanlUses, self.M), dtype=complex)
-        self.flag = flag
         self.decoded_symbols = list()
 
         global H_total
 
         # =========================================== Receiver  =========================================== #
-        while True:
-            if not self.check:
-                temp = self.count
-                self.check = 1
-
-            # ======================== Pilot / Spreading Sequence Detector ======================== #
-
-            if (self.K - (self.count+early_detec) == 0):
 
 
-            self.idxSSHat = energyDetector(self, self.Y, self.K - (self.count+early_detec))
-            print("Checking Energy detector Rx sequences", self.idxSSHat.shape, self.idxSSHat)
+        # ======================== HARQ Final round exit Condition ======================================== #
 
-            # ======================== Channel estimation (Pilots) ======================== #
-            HhatNew = channelEst(self)
+        if (self.K - (self.count+early_detec)) == 0:
+            print("All rounds of HARQ concluded")
+            return 0, 0, 0, np.zeros((self.nChanlUses, self.M), dtype=complex), 0, np.zeros((self.nChanlUses, self.M), dtype=complex), 1, 0
 
-            # ======================== Symbol estimation and Polar Code ======================== #
-            userDecRx, notUserDecRx, symbolsHatHard, msgsHat2Part, userDecRx_symbols = decoder(self, HhatNew, self.idxSSHat)
+        # ======================== Pilot / Spreading Sequence Detector ==================================== #
 
+        self.idxSSHat = energyDetector(self, self.Y, self.K - (self.count+early_detec))
 
-            # ======================== NOPICE without Polar Decoder since is done above ======================== #
+        print("Checking Energy detector Rx sequences", self.idxSSHat.shape, self.idxSSHat)
 
-            if self.NOPICE:
+        # ======================== Channel estimation (Pilots) ============================================ #
 
-                # --- Estimate the channel using P and Q
-                HhatNew2 = channelEstWithErrors(self, symbolsHatHard)
+        HhatNew = channelEst(self)
 
-                # --- Symbol Estimation and polar code
-                userDecRx2, notUserDecRx2, symbolsHatHard2, msgsHat2Part2 = decoder(self, HhatNew2, self.idxSSHat)
+        # ======================== Symbol estimation and Polar Code ======================== #
 
-                if userDecRx2.size >= userDecRx.size:
-                    userDecRx = userDecRx2
-                    notUserDecRx = notUserDecRx2
-                    symbolsHatHard = symbolsHatHard2
-                    msgsHat2Part = msgsHat2Part2
+        userDecRx, notUserDecRx, symbolsHatHard, msgsHat2Part, userDecRx_symbols = decoder(self, HhatNew, self.idxSSHat)
 
-            # --- Add the new indices
-            self.idxSSDec = np.append(self.idxSSDec, self.idxSSHat[userDecRx])
+        # --- Add the decoded indices
+        self.idxSSDec = np.append(self.idxSSDec, self.idxSSHat[userDecRx])
 
-            # --- HARQ tweak
-            for sym in range(len(userDecRx_symbols)):
+        # --- HARQ tweak
 
-                self.decoded_symbols.append(np.array(userDecRx_symbols[sym]))
+        for sym in range(len(userDecRx_symbols)):
+            self.decoded_symbols.append(np.array(userDecRx_symbols[sym]))
 
-            print("Checking Decoded Rx sequences", self.idxSSDec)
+        print("Checking Decoded Rx sequences", self.idxSSDec)
 
-            # Extra added lines. DO NOT ERASE. But something is wrong.
+        # ======================== Exit Condition ======================== #
 
-            if len(self.idxSSDec) > self.K:
+        # --- No new decoded user
 
-                diff = len(self.idxSSDec) - self.K
-                self.idxSSDec = self.idxSSDec[0:self.K]
-                userDecRx = userDecRx[0:len(self.idxSSDec)]
+        if userDecRx.size == 0:
 
+            print('Present HARQ round failed: Insufficient information')
+            return 0, 0, 0, np.zeros((self.nChanlUses, self.M), dtype=complex), 0, np.zeros((self.nChanlUses, self.M), dtype=complex), 0, 0
 
+        # ======================== Channel estimation (P + Q) ======================== #
 
-            # ======================== Exit Condition ======================== #
-            # --- No new decoded user
-            if userDecRx.size == 0:
-                # print('=== Done1 ===')
+        # --- Estimate the channel of the correct users
 
-                DE, FA, detected_msgs, Y_DE = checkPerformance(self, np.array(self.decoded_symbols), self.idxSSDec, H_total)
-                return DE, FA, self.count, Y_DE, np.array(detected_msgs)
-            # ======================== Channel estimation (P + Q) ======================== #
-            # --- Estimate the channel of the correct users
+        # Use the received signal
 
-            # Use the received signal
-            self.Y = Y.copy()
-            HhatNewDec, H_total = channelEstWithDecUsers(self, Y, self.idxSSDec, symbolsHatHard[userDecRx], harq_factor, self.flag) # Using original recieved value of Y for estimating H
+        self.Y = Y.copy()
 
-            # ================================== SIC ================================== #
+        HhatNewDec, H_total = channelEstWithDecUsers(self, Y, self.idxSSDec, symbolsHatHard[userDecRx], harq_factor) # Using original recieved value of Y for estimating H
 
-            # Only one user is decoded
+        # ================================== SIC ================================== #
 
-            if userDecRx.size == 1:
-                flag = 0
+        # Only one user is decoded
 
-                # Only one user left
-                if msgsHat2Part.shape[0] == 1:
-                    if not isIncluded(self, msgsHat2Part, self.idxSSHat[userDecRx]):
-                        Hsub = np.squeeze(HhatNewDec.reshape(self.M, 1))
-                        subInter(self, np.squeeze(symbolsHatHard), self.idxSSHat, Hsub, harq_factor)
-                        saveUser(self, msgsHat2Part, self.idxSSHat[userDecRx])
+        if userDecRx.size == 1:
 
-                # More than one user left
-                else:
-                    if not isIncluded(self, msgsHat2Part[userDecRx, :], self.idxSSHat[userDecRx]):
-                        Hsub = HhatNewDec
-                        subInter(self, np.squeeze(symbolsHatHard[userDecRx, :]), self.idxSSHat[userDecRx], Hsub, harq_factor)
-                        saveUser(self, msgsHat2Part[userDecRx, :], self.idxSSHat[userDecRx])
+            # Only one user left
+            if msgsHat2Part.shape[0] == 1:
+                if not isIncluded(self, msgsHat2Part, self.idxSSHat[userDecRx]):
+                    Hsub = np.squeeze(HhatNewDec.reshape(self.M, 1))
+                    subInter(self, np.squeeze(symbolsHatHard), self.idxSSHat, Hsub, harq_factor)
+                    saveUser(self, msgsHat2Part, self.idxSSHat[userDecRx])
 
-            # More than one user decode
-
+            # More than one user left
             else:
+                if not isIncluded(self, msgsHat2Part[userDecRx, :], self.idxSSHat[userDecRx]):
+                    Hsub = HhatNewDec
+                    subInter(self, np.squeeze(symbolsHatHard[userDecRx, :]), self.idxSSHat[userDecRx], Hsub, harq_factor)
+                    saveUser(self, msgsHat2Part[userDecRx, :], self.idxSSHat[userDecRx])
 
-                Hsub = HhatNewDec
+        # More than one user decode
 
-                for g in range(userDecRx.size):
-                    if not isIncluded(self, msgsHat2Part[userDecRx[g], :], self.idxSSHat[userDecRx[g]]):
-                        subInter(self, symbolsHatHard[userDecRx[g]], self.idxSSHat[userDecRx[g]], Hsub[g, :], harq_factor)
-                        saveUser(self, msgsHat2Part[userDecRx[g], :], self.idxSSHat[userDecRx[g]])
+        else:
 
+            Hsub = HhatNewDec
 
-            # ======================== Find the performance ======================== #
-            # de, fa = checkPerformance(self)
-            # print('Number of Detections: ' + str(de))
-            # print('Number of False Alarms: ' + str(fa))
+            for g in range(userDecRx.size):
+                if not isIncluded(self, msgsHat2Part[userDecRx[g], :], self.idxSSHat[userDecRx[g]]):
+                    subInter(self, symbolsHatHard[userDecRx[g]], self.idxSSHat[userDecRx[g]], Hsub[g, :], harq_factor)
+                    saveUser(self, msgsHat2Part[userDecRx[g], :], self.idxSSHat[userDecRx[g]])
 
-            # ======================== Exit Condition ======================== #
+        # ======================== Find the performance ======================== #
 
-            if self.count == self.K or temp == self.count:
-                # print('=== Done2 ===')
-                DE, FA, detected_msgs, Y_DE = checkPerformance(self, np.array(self.decoded_symbols), self.idxSSDec, H_total)
-                return DE, FA, self.count, Y_DE, np.array(detected_msgs)
-            else:
-                self.check = 0
+        # de, fa = checkPerformance(self)
+        # print('Number of Detections: ' + str(de))
+        # print('Number of False Alarms: ' + str(fa))
 
+        # ======================== Exit Condition ======================== #
+
+        # Feedback for the next round
+
+        DE, FA, detected_msgs, Y_DE = checkPerformance(self, np.array(self.decoded_symbols), self.idxSSDec, H_total, prev_msgs)
+        return DE, FA, self.count, Y_DE, np.array(detected_msgs), self.Y_contrib, 0, 1
 
 
 # ============================================ Functions ============================================ #
@@ -396,8 +372,8 @@ def subInter(self, symbols, idxSS, h, factor):
 
     # Subtract (SIC)
 
-    self.Y -= np.vstack((YTempPilots, YTempSymbols))
-    self.Y[factor::, :] = 0 # HARQ variable for varying channel uses and appropriate adjustment for SIC
+    # self.Y -= np.vstack((YTempPilots, YTempSymbols))
+    # self.Y[factor::, :] = 0 # HARQ variable for varying channel uses and appropriate adjustment for SIC
     self.Y_contrib += np.vstack((YTempPilots, YTempSymbols))
 
 def saveUser(self, msg2Part, idxSS):
@@ -407,16 +383,21 @@ def saveUser(self, msg2Part, idxSS):
     self.count += 1
 
 
-def checkPerformance(self, symbols, idxSS, H):
-
+def checkPerformance(self, symbols, idxSS, H, old_msgs):
     numDE, numFA, detections = 0, 0, list()
     Y_detected = np.zeros((self.nChanlUses, self.M), dtype=complex)
-
 
     for i in range(self.count):
         flag = 0
         for k in range(self.K):
             binSum = sum((self.msgs[k, :] + self.msgsHat[i, :]) % 2)
+
+            if old_msgs is not None and binSum == 0:
+                for l in range(old_msgs.shape[0]):
+                    binSum2 = sum((self.msgs[k, :] + old_msgs[l, :]) % 2)
+
+                    if binSum2 == 0:
+                        binSum = 1
 
             if binSum == 0:
                 flag = 1
@@ -440,9 +421,7 @@ def checkPerformance(self, symbols, idxSS, H):
 
             h = np.reshape(H[i], (self.M, 1))
 
-
             for m in range(self.M):
-
                 YTempPilots[:, m] = np.squeeze(self.P[:, idxSS[i]]) * h[m]
 
             # --- For Symbols
@@ -450,7 +429,8 @@ def checkPerformance(self, symbols, idxSS, H):
             A = np.zeros((self.nDataSlots * self.L), dtype=complex)
 
             for t in range(self.nDataSlots):
-                A[t * self.L: (t + 1) * self.L] = np.squeeze(self.A[t * self.L: (t + 1) * self.L, idxSS[i]]) * symbols[i][t]
+                A[t * self.L: (t + 1) * self.L] = np.squeeze(self.A[t * self.L: (t + 1) * self.L, idxSS[i]]) * \
+                                                  symbols[i][t]
 
             for m in range(self.M):
                 YTempSymbols[:, m] = A * h[m]
@@ -501,7 +481,7 @@ def channelEstWithErrors(self, symbolsHatHard):
     return LMMSE(self.Y, A, np.eye(K), np.eye(self.nChanlUses) * self.sigma2)
 
 
-def channelEstWithDecUsers(self, Y, decUsersSS, symbolsHatHard, factor, flag):
+def channelEstWithDecUsers(self, Y, decUsersSS, symbolsHatHard, factor):
 
     for i in range(self.count - 1, -1, -1):
 
@@ -529,15 +509,6 @@ def channelEstWithDecUsers(self, Y, decUsersSS, symbolsHatHard, factor, flag):
             A[:, k] = np.hstack((self.P[:, decUsersSS[k]], Atemp))
 
     Hhat = LMMSE(Y, A, np.eye(K), np.eye(self.nChanlUses) * self.sigma2)
-
-    #  HARQ tweak: Ignore
-
-    # if flag == 1:
-    #     self.flag = 0
-    #     self.count = 0
-    #     return Hhat[self.count::, :], Hhat
-    #
-    # else:
 
     for i in range(self.count):
         subInter(self, self.symbolsHat[i, :], decUsersSS[i], Hhat[i, :], factor)

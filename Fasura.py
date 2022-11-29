@@ -594,6 +594,7 @@ def decoder(self, H, idxSSHat):
     msgsHat = np.zeros((K, self.Bs), dtype=int)
 
     for s in range(symbolsHat.shape[0]):
+
         # Form the codeword
         cwordHatSoft = np.concatenate((np.real(symbolsHat[s, :]), np.imag(symbolsHat[s, :])), 0)
 
@@ -607,7 +608,7 @@ def decoder(self, H, idxSSHat):
         # What is this 256 condition?
         # Ans: Strike a balance b/w FA and MD
 
-        if isDecoded == 1 and sum(abs(((cwordHatSoftInt < 0) * 1 - cwordHatHard)) % 2) > 256:
+        if isDecoded == 1 and sum(abs(((cwordHatSoftInt < 0) * 1 - cwordHatHard)).b % 2) > 256:
             isDecoded = 0
 
         # Why is it necessary to store all symbols including those of which that are not decoded?

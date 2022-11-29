@@ -62,6 +62,7 @@ import matplotlib.pyplot as plt
 # plt.legend(['K = 16, M = 4, Eb_NodB = 1.05'])
 # plt.xticks(nChannelUses)
 # plt.show()
-a = np.array([[1,2,3],[4,5,6]])
-b = np.array([[1,2,3],[4,5,6]])
-print(np.vstack((a,b)))
+a = np.array([[1, 2, 3, 0, 5, 6]])
+b = np.array([[1,3,3],[4,5,6]])
+
+print(np.argmin(a))

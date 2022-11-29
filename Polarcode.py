@@ -29,9 +29,9 @@ class PolarCode():
             Q = np.flip(np.genfromtxt("Q" + str(1024) + ".csv", delimiter=','))-1
 
         self.Q = Q[Q < n].astype(int)
-        #print(max(self.Q))
+        # print(max(self.Q))
         self.frozenPos = self.Q[0:n - self.k]
-        #print("Hello2",len(self.frozenPos))
+        # print("Hello2", len(self.frozenPos))
         self.msgPos = self.Q[n - self.k:n]
 
     def encoder(self, msg, frozenValues, t):
@@ -50,7 +50,7 @@ class PolarCode():
                 frozenValues = np.zeros(self.n - self.k)
 
         # Define the first bits of the codeword
-        # print(codeword.shape,msg.shape)
+        # print("Test1", codeword.shape, msg.shape, self.msgPos.shape)
         codeword[self.msgPos] = msg
         codeword[self.frozenPos] = frozenValues
 

@@ -8,7 +8,7 @@ from utility import bin2dec, dec2bin, crcEncoder, crcDecoder
 np.random.seed(0)
 # =========================================== Initialization =========================================== #
 # Number of active users
-K = 32
+K = 16
 
 # number of pilots (length of the pilots)
 nPilots = 896
@@ -36,7 +36,7 @@ print("Number of channel uses::: " + str(nChanlUses))
 # Number of Antennas
 M = 4
 # EbN0dB
-EbN0dB = 5
+EbN0dB = 3
 
 # --- Variance of Noise
 sigma2 = 1.0 / ((10 ** (EbN0dB / 10.0)) * B)
@@ -61,7 +61,7 @@ A = S[nPilots::, :] / np.sqrt(4.0 * nChanlUses)
 H = (1 / np.sqrt(2)) * (np.random.normal(0, 1, (K, M)) + 1j * np.random.normal(0, 1, (K, M)))
 
 
-rounds = 5
+rounds = 1
 
 resultsDE = np.zeros((nIter,rounds))
 resultsFA = np.zeros((nIter,rounds))
@@ -69,6 +69,11 @@ resultsFA = np.zeros((nIter,rounds))
 
 # --- Generate K msgs at once
 msgs = np.random.randint(0, 2, (K, B))
+
+# --- HARQ channel uses
+
+nChanlUses_harq = int((L * nc)/4)
+nChanlUses_0 = nPilots + nChanlUses_harq
 
 # --- Run the simulation nIter times
 
@@ -107,12 +112,12 @@ for Iter in range(nIter):
             # --- Preprocessing
             Y_temp1 = np.zeros((nChanlUses, M), dtype=complex)
 
-            for i in range(0, int((1 / 2) * nChanlUses)):
+            for i in range(0, nChanlUses_0):
                 Y_temp1[i, :] = Y_final1[i, :]
 
             # --- Decode
 
-            DE1, FA, Khat, Y_detected1, msgs1, Y_decoded1, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp1, 0, int((1 / 2) * nChanlUses), None)
+            DE1, FA, Khat, Y_detected1, msgs1, Y_decoded1, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp1, 0, nChanlUses_0, None)
 
             if HARQ_exit == 1:
                 break
@@ -147,10 +152,10 @@ for Iter in range(nIter):
             # --- Preprocessing
             Y_temp2 = np.zeros((nChanlUses, M), dtype=complex)
 
-            for i in range(0, int((1 / 2) * nChanlUses)):
+            for i in range(0, nChanlUses_0):
                 Y_temp2[i, :] = Y_final1[i, :]
 
-            for i in range(int((1 / 2) * nChanlUses), int((5 / 8) * nChanlUses)):
+            for i in range(nChanlUses_0, nChanlUses_0 + int((1/4) * nChanlUses_harq)):
                 Y_temp2[i, :] = Y_final2[i, :]
 
             # --- Decode
@@ -162,7 +167,7 @@ for Iter in range(nIter):
             else:
                 old_msgs = msgs1
 
-            DE2, FA, Khat, Y_detected2, msgs2, Y_decoded2, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp2, DE1, int((5 / 8) * nChanlUses), old_msgs)
+            DE2, FA, Khat, Y_detected2, msgs2, Y_decoded2, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp2, DE1, nChanlUses_0 + int((1/4) * nChanlUses_harq) , old_msgs)
 
             # Pre-processing for next round
 
@@ -200,10 +205,10 @@ for Iter in range(nIter):
             # --- Preprocessing
             Y_temp3 = np.zeros((nChanlUses, M), dtype=complex)
 
-            for i in range(0, int((5 / 8) * nChanlUses)):
+            for i in range(0, nChanlUses_0 + int((1/4) * nChanlUses_harq)):
                 Y_temp3[i, :] = Y_final1[i, :]
 
-            for i in range(int((5 / 8) * nChanlUses), int((6 / 8) * nChanlUses)):
+            for i in range(nChanlUses_0 + int((1/4) * nChanlUses_harq), nChanlUses_0 + int((2/4) * nChanlUses_harq)):
                 Y_temp3[i, :] = Y_final2[i, :]
 
             # --- Decode
@@ -221,7 +226,7 @@ for Iter in range(nIter):
                 else:
                     old_msgs = np.vstack((msgs1, msgs2))
 
-            DE3, FA, Khat, Y_detected3, msgs3, Y_decoded3, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp3, DE1 + DE2, int((6 / 8) * nChanlUses), old_msgs)
+            DE3, FA, Khat, Y_detected3, msgs3, Y_decoded3, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp3, DE1 + DE2, nChanlUses_0 + int((2/4) * nChanlUses_harq), old_msgs)
 
             # Pre-processing for next round
 
@@ -259,10 +264,10 @@ for Iter in range(nIter):
             # --- Preprocessing
             Y_temp4 = np.zeros((nChanlUses, M), dtype=complex)
 
-            for i in range(0, int((6 / 8) * nChanlUses)):
+            for i in range(0, nChanlUses_0 + int((2/4) * nChanlUses_harq)):
                 Y_temp4[i, :] = Y_final1[i, :]
 
-            for i in range(int((6 / 8) * nChanlUses), int((7 / 8) * nChanlUses)):
+            for i in range(nChanlUses_0 + int((2/4) * nChanlUses_harq), nChanlUses_0 + int((3/4) * nChanlUses_harq)):
                 Y_temp4[i, :] = Y_final2[i, :]
 
             # --- Decode
@@ -281,7 +286,7 @@ for Iter in range(nIter):
                     old_msgs = np.vstack((old_msgs, msgs3))
 
 
-            DE4, FA, Khat, Y_detected4, msgs4, Y_decoded4, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp4, DE1 + DE2 + DE3, int((7 / 8) * nChanlUses), old_msgs)
+            DE4, FA, Khat, Y_detected4, msgs4, Y_decoded4, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp4, DE1 + DE2 + DE3, nChanlUses_0 + int((3/4) * nChanlUses_harq), old_msgs)
 
             # Pre-processing for next round
 
@@ -320,10 +325,10 @@ for Iter in range(nIter):
 
             Y_temp5 = np.zeros((nChanlUses, M), dtype=complex)
 
-            for i in range(0, int((7 / 8) * nChanlUses)):
+            for i in range(0, nChanlUses_0 + int((3/4) * nChanlUses_harq)):
                 Y_temp5[i, :] = Y_final1[i, :]
 
-            for i in range(int((7 / 8) * nChanlUses), int((8 / 8) * nChanlUses)):
+            for i in range(nChanlUses_0 + int((3/4) * nChanlUses_harq), nChanlUses_0 + int((4/4) * nChanlUses_harq)):
                 Y_temp5[i, :] = Y_final2[i, :]
 
             # --- Decode
@@ -340,7 +345,7 @@ for Iter in range(nIter):
                 else:
                     old_msgs = np.vstack((old_msgs, msgs4))
 
-            DE5, FA, Khat, Y_detected5, msgs5, Y_decoded5, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp5, DE1 + DE2 + DE3 + DE4, int((8 / 8) * nChanlUses), old_msgs)
+            DE5, FA, Khat, Y_detected5, msgs5, Y_decoded5, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp5, DE1 + DE2 + DE3 + DE4, nChanlUses_0 + int((4/4) * nChanlUses_harq), old_msgs)
 
             # Pre-processing for next round
 

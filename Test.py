@@ -62,7 +62,37 @@ import matplotlib.pyplot as plt
 # plt.legend(['K = 16, M = 4, Eb_NodB = 1.05'])
 # plt.xticks(nChannelUses)
 # plt.show()
-a = np.array([[1, 2, 3, 0, 5, 6]])
-b = np.array([[1,3,3],[4,5,6]])
+# from numpy import linalg as LA
+# a = np.array([1+1j, 2+2j], dtype = complex)
+# b = (abs(a))
+# b = b**2
+# print(b, LA.norm(a)**2)
 
-print(np.argmin(a))
+Detections = np.loadtxt('Detections.out')
+Packet_energy = np.loadtxt('Packet_energy.out')
+
+detected_users = np.zeros(Detections.shape[1])
+
+for i in range(Detections.shape[1]):
+    for j in range(Detections.shape[0]):
+        if int(Detections[j, i]) >= 95:
+            detected_users[i] += 1
+
+detected_users /= Detections.shape[0]
+x = np.arange(17)
+print(x)
+print(detected_users)
+
+import matplotlib.pyplot as plt
+
+
+plt.plot(x,detected_users,'-*b', linewidth=1.5)
+# plt.axhline(y=5, color='r', linestyle='--')
+plt.xlabel('HARQ rounds')
+plt.ylabel('Emperical CDF')
+plt.title('Probability that 95% of users are decoded')
+plt.legend(['K = 100, M = 50, Eb_NodB = -10'])
+plt.xticks(x)
+plt.show()
+
+

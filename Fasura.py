@@ -181,7 +181,7 @@ class FASURA:
 
         self.idxSSHat = energyDetector(self, self.Y, self.K - (self.count+early_detec))
 
-        print("Checking Energy detector Rx sequences", self.idxSSHat.shape, self.idxSSHat)
+        # print("Checking Energy detector Rx sequences", self.idxSSHat.shape, self.idxSSHat)
 
         # ======================== Channel estimation (Pilots) ============================================ #
 
@@ -199,7 +199,7 @@ class FASURA:
         for sym in range(len(userDecRx_symbols)):
             self.decoded_symbols.append(np.array(userDecRx_symbols[sym]))
 
-        print("Checking Decoded Rx sequences", self.idxSSDec)
+        # print("Checking Decoded Rx sequences", self.idxSSDec)
 
         # ======================== Exit Condition ======================== #
 
@@ -608,7 +608,7 @@ def decoder(self, H, idxSSHat):
         # What is this 256 condition?
         # Ans: Strike a balance b/w FA and MD
 
-        if isDecoded == 1 and sum(abs(((cwordHatSoftInt < 0) * 1 - cwordHatHard)).b % 2) > 256:
+        if isDecoded == 1 and sum(abs(((cwordHatSoftInt < 0) * 1 - cwordHatHard)) % 2) > 256:
             isDecoded = 0
 
         # Why is it necessary to store all symbols including those of which that are not decoded?

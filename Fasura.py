@@ -207,7 +207,7 @@ class FASURA:
 
         if userDecRx.size == 0:
 
-            print('Present HARQ round failed: Insufficient information')
+            # print('Present HARQ round failed: Insufficient information')
             return 0, 0, 0, np.zeros((self.nChanlUses, self.M), dtype=complex), 0, np.zeros((self.nChanlUses, self.M), dtype=complex), 0, 0
 
         # ======================== Channel estimation (P + Q) ======================== #

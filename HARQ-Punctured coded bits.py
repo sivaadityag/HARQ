@@ -42,7 +42,7 @@ EbN0dB = -10
 sigma2 = 1.0 / ((10 ** (EbN0dB / 10.0)) * B)
 
 # Number of iterations
-nIter = 10
+nIter = 250
 
 # =========================================== Simulation =========================================== #
 start = time.time()
@@ -61,7 +61,7 @@ A = S[nPilots::, :] / np.sqrt(4.0 * nChanlUses)
 H = (1 / np.sqrt(2)) * (np.random.normal(0, 1, (K, M)) + 1j * np.random.normal(0, 1, (K, M)))
 
 # rounds are zero indexed
-rounds = 17
+rounds = 7
 
 # Performance parameters
 
@@ -91,372 +91,372 @@ for Iter in range(nIter):
 
         # Initialize the scheme and generate the entire "coded" message at once.
 
-        if round == 0:
-
-            # --- Create a FASURA object
-            scheme = FASURA(K, nPilots, B, Bf, L, nc, nL, M, sigma2, H, P, A, nChanlUses)
-
-            # --- Encode the data just once and use the TX message in subsequent rounds
-            global XH
-
-            XH = scheme.transmitter(msgs, H)
-
-            # --- Generate the noise
-            N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2), (int(nChanlUses), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses), M)))
-
-            # --- Full version of the transmitted Signal
-
-            Y = XH + N
-
-            # Keep two copies of the entire signal
-
-            Y_final1 = Y.copy()
-            Y_final2 = Y.copy()
-
-            #Performance parameter
-
-            total_energy[Iter][round] = L2.norm(Y)**2
-
-            print("In round:::", round + 1)
-
-            # --- Preprocessing
-            Y_temp1 = np.zeros((nChanlUses, M), dtype=complex)
-
-            for i in range(0, nChanlUses_0):
-                Y_temp1[i, :] = Y_final1[i, :]
-
-            # --- Decode
-
-            DE1, FA, Khat, Y_detected1, msgs1, Y_decoded1, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp1, 0, nChanlUses_0, None)
-
-            # All detections complete: No more energy left
-            if HARQ_exit == 1:
-                print("All possible detections complete")
-                break
-
-            # Current round had successful detections
-            elif HARQ_curr == 1:
-                # detected_indices = np.array([], dtype=int)
-                #
-                # for i in range(msgs1.shape[0]):
-                #     detected_indices = np.append(detected_indices, int(bin2dec(msgs1[i, 0:Bf])))
-
-                print("Round 1 status::", DE1, FA, Khat, msgs1.shape)
-
-                # Pre-processing for next round
-                Y_final1 = Y_final1 - Y_decoded1
-                Y_final2 = Y_final2 - Y_detected1
-
-            # Current round failed (Unable to detect any new users)
-            else:
-                print("No new detections: Moving onto next round")
-                msgs1 = np.array([], dtype=int)
-
-            # Performance parameters
-
-            detections[Iter][round] = DE1
-            packet_energy[Iter][round] = L2.norm(Y_temp1)**2
-
-        elif round == 1:
-
-            print("In round:::", round + 1)
-
-            # --- Preprocessing
-            Y_temp2 = np.zeros((nChanlUses, M), dtype=complex)
-
-            for i in range(0, nChanlUses_0):
-                Y_temp2[i, :] = Y_final1[i, :]
-
-            for i in range(nChanlUses_0, nChanlUses_0 + int((1/16) * nChanlUses_harq)):
-                Y_temp2[i, :] = Y_final2[i, :]
-
-            # --- Decode
-
-            # Check detected msgs from previous rounds
-
-            if msgs1.shape[0] == 0:
-                old_msgs = None
-            else:
-                old_msgs = msgs1
-
-            DE2, FA, Khat, Y_detected2, msgs2, Y_decoded2, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp2, DE1, nChanlUses_0 + int((1/16) * nChanlUses_harq) , old_msgs)
-
-            # All detections complete: No more energy left
-            if HARQ_exit == 1:
-                print("All possible detections complete")
-                break
-
-            # Current round had successful detections
-            elif HARQ_curr == 1:
-
-                # detected_indices = np.array([], dtype=int)
-                #
-                # for i in range(msgs2.shape[0]):
-                #     detected_indices = np.append(detected_indices, int(bin2dec(msgs2[i, 0:Bf])))
-
-                print("Round 2 status::", DE1 + DE2, FA, Khat, msgs2.shape)
-
-                # Pre-processing for next round
-
-                Y_final1 = Y_final1 - Y_decoded2
-                Y_final2 = Y_final2 - Y_detected2
-
-            # Current round failed (Unable to detect any new users)
-            else:
-                print("No new detections: Moving onto next round")
-                msgs2 = np.array([], dtype=int)
-
-            # Performance parameters
-
-            detections[Iter][round] = DE1 + DE2
-            packet_energy[Iter][round] = L2.norm(Y_temp2[nChanlUses_0::, :]) ** 2
-
-        elif round == 2:
-
-            print("In round:::", round + 1)
-
-            # --- Preprocessing
-            Y_temp3 = np.zeros((nChanlUses, M), dtype=complex)
-
-            for i in range(0, nChanlUses_0 + int((1/16) * nChanlUses_harq)):
-                Y_temp3[i, :] = Y_final1[i, :]
-
-            for i in range(nChanlUses_0 + int((1/16) * nChanlUses_harq), nChanlUses_0 + int((2/16) * nChanlUses_harq)):
-                Y_temp3[i, :] = Y_final2[i, :]
-
-            # --- Decode
-
-            # Check detected msgs from previous rounds
-
-            if msgs1.shape[0] == 0:
-                if msgs2.shape[0] == 0:
-                    old_msgs = None
-                else:
-                    old_msgs = msgs2
-            else:
-                if msgs2.shape[0] == 0:
-                    old_msgs = msgs1
-                else:
-                    old_msgs = np.vstack((msgs1, msgs2))
-
-            DE3, FA, Khat, Y_detected3, msgs3, Y_decoded3, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp3, DE1 + DE2, nChanlUses_0 + int((2/16) * nChanlUses_harq), old_msgs)
-
-            # All detections complete: No more energy left
-            if HARQ_exit == 1:
-                print("All possible detections complete")
-                break
-
-            # Current round had successful detections
-            elif HARQ_curr == 1:
-                # detected_indices = np.array([], dtype=int)
-                #
-                # for i in range(msgs3.shape[0]):
-                #     detected_indices = np.append(detected_indices, int(bin2dec(msgs3[i, 0:Bf])))
-
-                print("Round 3 status::", DE1 + DE2 + DE3, FA, Khat, msgs3.shape)
-
-                # Pre-processing for next round
-
-                Y_final1 = Y_final1 - Y_decoded3
-                Y_final2 = Y_final2 - Y_detected3
-
-            # Current round failed (Unable to detect any new users)
-            else:
-                print("No new detections: Moving onto next round")
-                msgs3 = np.array([], dtype=int)
-
-            # Performance parameters
-
-            detections[Iter][round] = DE1 + DE2 + DE3
-            packet_energy[Iter][round] = L2.norm(Y_temp3[nChanlUses_0 + int((1/16) * nChanlUses_harq)::, :]) ** 2
-
-        elif round == 3:
-
-            print("In round:::", round + 1)
-
-            # --- Preprocessing
-            Y_temp4 = np.zeros((nChanlUses, M), dtype=complex)
-
-            for i in range(0, nChanlUses_0 + int((2/16) * nChanlUses_harq)):
-                Y_temp4[i, :] = Y_final1[i, :]
-
-            for i in range(nChanlUses_0 + int((2/16) * nChanlUses_harq), nChanlUses_0 + int((3/16) * nChanlUses_harq)):
-                Y_temp4[i, :] = Y_final2[i, :]
-
-            # --- Decode
-
-            # Checking the status of previous round detected messages
-
-            if old_msgs is None:
-                if msgs3.shape[0] == 0:
-                    old_msgs = None
-                else:
-                    old_msgs = msgs3
-            else:
-                if msgs3.shape[0] == 0:
-                    # old_msgs remain as it is
-                    old_msgs = old_msgs
-                else:
-                    old_msgs = np.vstack((old_msgs, msgs3))
-
-
-            DE4, FA, Khat, Y_detected4, msgs4, Y_decoded4, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp4, DE1 + DE2 + DE3, nChanlUses_0 + int((3/16) * nChanlUses_harq), old_msgs)
-
-            # All detections complete: No more energy left
-            if HARQ_exit == 1:
-                print("All possible detections complete")
-                break
-
-            # Current round had successful detections
-            elif HARQ_curr == 1:
-                # detected_indices = np.array([], dtype=int)
-                #
-                # for i in range(msgs4.shape[0]):
-                #     detected_indices = np.append(detected_indices, int(bin2dec(msgs4[i, 0:Bf])))
-
-                print("Round 4 status::", DE1 + DE2 + DE3 + DE4, FA, Khat, msgs4.shape)
-
-                # Pre-processing for next round
-                Y_final1 = Y_final1 - Y_decoded4
-                Y_final2 = Y_final2 - Y_detected4
-
-            # Current round failed (Unable to detect any new users)
-            else:
-                print("No new detections: Moving onto next round")
-                msgs4 = np.array([], dtype=int)
-
-            # Performance parameters
-
-            detections[Iter][round] = DE1 + DE2 + DE3 + DE4
-            packet_energy[Iter][round] = L2.norm(Y_temp4[nChanlUses_0 + int((2 / 16) * nChanlUses_harq)::, :]) ** 2
-
-        elif round == 4:
-
-            print("In round:::", round + 1)
-
-            # --- Preprocessing
-
-            Y_temp5 = np.zeros((nChanlUses, M), dtype=complex)
-
-            for i in range(0, nChanlUses_0 + int((3/16) * nChanlUses_harq)):
-                Y_temp5[i, :] = Y_final1[i, :]
-
-            for i in range(nChanlUses_0 + int((3/16) * nChanlUses_harq), nChanlUses_0 + int((4/16) * nChanlUses_harq)):
-                Y_temp5[i, :] = Y_final2[i, :]
-
-            # --- Decode
-
-            # Checking the status of previous round detected messages
-
-            if old_msgs is None:
-                if msgs4.shape[0] == 0:
-                    old_msgs = None
-                else:
-                    old_msgs = msgs4
-            else:
-                if msgs4.shape[0] == 0:
-                    # old_msgs remain as it is
-                    old_msgs = old_msgs
-                else:
-                    old_msgs = np.vstack((old_msgs, msgs4))
-
-            DE5, FA, Khat, Y_detected5, msgs5, Y_decoded5, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp5, DE1 + DE2 + DE3 + DE4, nChanlUses_0 + int((4/16) * nChanlUses_harq), old_msgs)
-
-            # All detections complete: No more energy left
-            if HARQ_exit == 1:
-                print("All possible detections complete")
-                break
-
-            # Current round had successful detections
-            elif HARQ_curr == 1:
-                #
-                # detected_indices = np.array([], dtype=int)
-                #
-                # for i in range(msgs5.shape[0]):
-                #     detected_indices = np.append(detected_indices, int(bin2dec(msgs5[i, 0:Bf])))
-
-                print("Round 5 status::", DE1 + DE2 + DE3 + DE4 + DE5, FA, Khat, msgs5.shape)
-
-                # Pre-processing for next round
-
-                Y_final1 = Y_final1 - Y_decoded5
-                Y_final2 = Y_final2 - Y_detected5
-
-            # Current round failed (Unable to detect any new users)
-            else:
-                print("No new detections: Moving onto next round")
-                msgs5 = np.array([], dtype=int)
-
-            # Performance parameters
-
-            detections[Iter][round] = DE1 + DE2 + DE3 + DE4 + DE5
-            packet_energy[Iter][round] = L2.norm(Y_temp5[nChanlUses_0 + int((3 / 16) * nChanlUses_harq)::, :]) ** 2
-
-        elif round == 5:
-
-            print("In round:::", round + 1)
-
-            # --- Preprocessing
-
-            Y_temp6 = np.zeros((nChanlUses, M), dtype=complex)
-
-            for i in range(0, nChanlUses_0 + int((4/16) * nChanlUses_harq)):
-                Y_temp6[i, :] = Y_final1[i, :]
-
-            for i in range(nChanlUses_0 + int((4/16) * nChanlUses_harq), nChanlUses_0 + int((5/16) * nChanlUses_harq)):
-                Y_temp6[i, :] = Y_final2[i, :]
-
-            # --- Decode
-
-            # Checking the status of previous round detected messages
-
-            if old_msgs is None:
-                if msgs5.shape[0] == 0:
-                    old_msgs = None
-                else:
-                    old_msgs = msgs5
-            else:
-                if msgs5.shape[0] == 0:
-                    # old_msgs remain as it is
-                    old_msgs = old_msgs
-                else:
-                    old_msgs = np.vstack((old_msgs, msgs5))
-
-            DE6, FA, Khat, Y_detected6, msgs6, Y_decoded6, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp6, DE1 + DE2 + DE3 + DE4 + DE5, nChanlUses_0 + int((5/16) * nChanlUses_harq), old_msgs)
-
-            # All detections complete: No more energy left
-            if HARQ_exit == 1:
-                print("All possible detections complete")
-                break
-
-            # Current round had successful detections
-            elif HARQ_curr == 1:
-
-                # detected_indices = np.array([], dtype=int)
-                #
-                # # for i in range(msgs6.shape[0]):
-                #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
-
-                print("Round 6 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6, FA, Khat, msgs6.shape)
-
-                # Pre-processing for next round
-
-                Y_final1 = Y_final1 - Y_decoded6
-                Y_final2 = Y_final2 - Y_detected6
-
-            # Current round failed (Unable to detect any new users)
-            else:
-                print("No new detections: Moving onto next round")
-                msgs6 = np.array([], dtype=int)
-
-            # Performance parameters
-
-            detections[Iter][round] = DE1 + DE2 + DE3 + DE4 + DE5 + DE6
-            packet_energy[Iter][round] = L2.norm(Y_temp6[nChanlUses_0 + int((4 / 16) * nChanlUses_harq)::, :]) ** 2
-
-        elif round == 6:
-
-            print("In round:::", round + 1)
+        # if round == 0:
+        #
+        #     # --- Create a FASURA object
+        #     scheme = FASURA(K, nPilots, B, Bf, L, nc, nL, M, sigma2, H, P, A, nChanlUses)
+        #
+        #     # --- Encode the data just once and use the TX message in subsequent rounds
+        #     global XH
+        #
+        #     XH = scheme.transmitter(msgs, H)
+        #
+        #     # --- Generate the noise
+        #     N = (1 / np.sqrt(2)) * (np.random.normal(0, np.sqrt(sigma2), (int(nChanlUses), M)) + 1j * np.random.normal(0, np.sqrt(sigma2),(int(nChanlUses), M)))
+        #
+        #     # --- Full version of the transmitted Signal
+        #
+        #     Y = XH + N
+        #
+        #     # Keep two copies of the entire signal
+        #
+        #     Y_final1 = Y.copy()
+        #     Y_final2 = Y.copy()
+        #
+        #     #Performance parameter
+        #
+        #     total_energy[Iter][round] = L2.norm(Y)**2
+        #
+        #     # print("In round:::", round + 1)
+        #
+        #     # --- Preprocessing
+        #     Y_temp1 = np.zeros((nChanlUses, M), dtype=complex)
+        #
+        #     for i in range(0, nChanlUses_0):
+        #         Y_temp1[i, :] = Y_final1[i, :]
+        #
+        #     # --- Decode
+        #
+        #     DE1, FA, Khat, Y_detected1, msgs1, Y_decoded1, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp1, 0, nChanlUses_0, None)
+        #
+        #     # All detections complete: No more energy left
+        #     if HARQ_exit == 1:
+        #         # print("All possible detections complete")
+        #         break
+        #
+        #     # Current round had successful detections
+        #     elif HARQ_curr == 1:
+        #         # detected_indices = np.array([], dtype=int)
+        #         #
+        #         # for i in range(msgs1.shape[0]):
+        #         #     detected_indices = np.append(detected_indices, int(bin2dec(msgs1[i, 0:Bf])))
+        #
+        #         # print("Round 1 status::", DE1, FA, Khat, msgs1.shape)
+        #
+        #         # Pre-processing for next round
+        #         Y_final1 = Y_final1 - Y_decoded1
+        #         Y_final2 = Y_final2 - Y_detected1
+        #
+        #     # Current round failed (Unable to detect any new users)
+        #     else:
+        #         # print("No new detections: Moving onto next round")
+        #         msgs1 = np.array([], dtype=int)
+        #
+        #     # Performance parameters
+        #
+        #     detections[Iter][round] = DE1
+        #     packet_energy[Iter][round] = L2.norm(Y_temp1)**2
+        #
+        # elif round == 1:
+        #
+        #     # print("In round:::", round + 1)
+        #
+        #     # --- Preprocessing
+        #     Y_temp2 = np.zeros((nChanlUses, M), dtype=complex)
+        #
+        #     for i in range(0, nChanlUses_0):
+        #         Y_temp2[i, :] = Y_final1[i, :]
+        #
+        #     for i in range(nChanlUses_0, nChanlUses_0 + int((1/16) * nChanlUses_harq)):
+        #         Y_temp2[i, :] = Y_final2[i, :]
+        #
+        #     # --- Decode
+        #
+        #     # Check detected msgs from previous rounds
+        #
+        #     if msgs1.shape[0] == 0:
+        #         old_msgs = None
+        #     else:
+        #         old_msgs = msgs1
+        #
+        #     DE2, FA, Khat, Y_detected2, msgs2, Y_decoded2, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp2, DE1, nChanlUses_0 + int((1/16) * nChanlUses_harq) , old_msgs)
+        #
+        #     # All detections complete: No more energy left
+        #     if HARQ_exit == 1:
+        #         # print("All possible detections complete")
+        #         break
+        #
+        #     # Current round had successful detections
+        #     elif HARQ_curr == 1:
+        #
+        #         # detected_indices = np.array([], dtype=int)
+        #         #
+        #         # for i in range(msgs2.shape[0]):
+        #         #     detected_indices = np.append(detected_indices, int(bin2dec(msgs2[i, 0:Bf])))
+        #
+        #         # print("Round 2 status::", DE1 + DE2, FA, Khat, msgs2.shape)
+        #
+        #         # Pre-processing for next round
+        #
+        #         Y_final1 = Y_final1 - Y_decoded2
+        #         Y_final2 = Y_final2 - Y_detected2
+        #
+        #     # Current round failed (Unable to detect any new users)
+        #     else:
+        #         # print("No new detections: Moving onto next round")
+        #         msgs2 = np.array([], dtype=int)
+        #
+        #     # Performance parameters
+        #
+        #     detections[Iter][round] = DE1 + DE2
+        #     packet_energy[Iter][round] = L2.norm(Y_temp2[nChanlUses_0::, :]) ** 2
+        #
+        # elif round == 2:
+        #
+        #     # print("In round:::", round + 1)
+        #
+        #     # --- Preprocessing
+        #     Y_temp3 = np.zeros((nChanlUses, M), dtype=complex)
+        #
+        #     for i in range(0, nChanlUses_0 + int((1/16) * nChanlUses_harq)):
+        #         Y_temp3[i, :] = Y_final1[i, :]
+        #
+        #     for i in range(nChanlUses_0 + int((1/16) * nChanlUses_harq), nChanlUses_0 + int((2/16) * nChanlUses_harq)):
+        #         Y_temp3[i, :] = Y_final2[i, :]
+        #
+        #     # --- Decode
+        #
+        #     # Check detected msgs from previous rounds
+        #
+        #     if msgs1.shape[0] == 0:
+        #         if msgs2.shape[0] == 0:
+        #             old_msgs = None
+        #         else:
+        #             old_msgs = msgs2
+        #     else:
+        #         if msgs2.shape[0] == 0:
+        #             old_msgs = msgs1
+        #         else:
+        #             old_msgs = np.vstack((msgs1, msgs2))
+        #
+        #     DE3, FA, Khat, Y_detected3, msgs3, Y_decoded3, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp3, DE1 + DE2, nChanlUses_0 + int((2/16) * nChanlUses_harq), old_msgs)
+        #
+        #     # All detections complete: No more energy left
+        #     if HARQ_exit == 1:
+        #         # print("All possible detections complete")
+        #         break
+        #
+        #     # Current round had successful detections
+        #     elif HARQ_curr == 1:
+        #         # detected_indices = np.array([], dtype=int)
+        #         #
+        #         # for i in range(msgs3.shape[0]):
+        #         #     detected_indices = np.append(detected_indices, int(bin2dec(msgs3[i, 0:Bf])))
+        #
+        #         # print("Round 3 status::", DE1 + DE2 + DE3, FA, Khat, msgs3.shape)
+        #
+        #         # Pre-processing for next round
+        #
+        #         Y_final1 = Y_final1 - Y_decoded3
+        #         Y_final2 = Y_final2 - Y_detected3
+        #
+        #     # Current round failed (Unable to detect any new users)
+        #     else:
+        #         # print("No new detections: Moving onto next round")
+        #         msgs3 = np.array([], dtype=int)
+        #
+        #     # Performance parameters
+        #
+        #     detections[Iter][round] = DE1 + DE2 + DE3
+        #     packet_energy[Iter][round] = L2.norm(Y_temp3[nChanlUses_0 + int((1/16) * nChanlUses_harq)::, :]) ** 2
+        #
+        # elif round == 3:
+        #
+        #     # print("In round:::", round + 1)
+        #
+        #     # --- Preprocessing
+        #     Y_temp4 = np.zeros((nChanlUses, M), dtype=complex)
+        #
+        #     for i in range(0, nChanlUses_0 + int((2/16) * nChanlUses_harq)):
+        #         Y_temp4[i, :] = Y_final1[i, :]
+        #
+        #     for i in range(nChanlUses_0 + int((2/16) * nChanlUses_harq), nChanlUses_0 + int((3/16) * nChanlUses_harq)):
+        #         Y_temp4[i, :] = Y_final2[i, :]
+        #
+        #     # --- Decode
+        #
+        #     # Checking the status of previous round detected messages
+        #
+        #     if old_msgs is None:
+        #         if msgs3.shape[0] == 0:
+        #             old_msgs = None
+        #         else:
+        #             old_msgs = msgs3
+        #     else:
+        #         if msgs3.shape[0] == 0:
+        #             # old_msgs remain as it is
+        #             old_msgs = old_msgs
+        #         else:
+        #             old_msgs = np.vstack((old_msgs, msgs3))
+        #
+        #
+        #     DE4, FA, Khat, Y_detected4, msgs4, Y_decoded4, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp4, DE1 + DE2 + DE3, nChanlUses_0 + int((3/16) * nChanlUses_harq), old_msgs)
+        #
+        #     # All detections complete: No more energy left
+        #     if HARQ_exit == 1:
+        #         # print("All possible detections complete")
+        #         break
+        #
+        #     # Current round had successful detections
+        #     elif HARQ_curr == 1:
+        #         # detected_indices = np.array([], dtype=int)
+        #         #
+        #         # for i in range(msgs4.shape[0]):
+        #         #     detected_indices = np.append(detected_indices, int(bin2dec(msgs4[i, 0:Bf])))
+        #
+        #         # print("Round 4 status::", DE1 + DE2 + DE3 + DE4, FA, Khat, msgs4.shape)
+        #
+        #         # Pre-processing for next round
+        #         Y_final1 = Y_final1 - Y_decoded4
+        #         Y_final2 = Y_final2 - Y_detected4
+        #
+        #     # Current round failed (Unable to detect any new users)
+        #     else:
+        #         # print("No new detections: Moving onto next round")
+        #         msgs4 = np.array([], dtype=int)
+        #
+        #     # Performance parameters
+        #
+        #     detections[Iter][round] = DE1 + DE2 + DE3 + DE4
+        #     packet_energy[Iter][round] = L2.norm(Y_temp4[nChanlUses_0 + int((2 / 16) * nChanlUses_harq)::, :]) ** 2
+        #
+        # elif round == 4:
+        #
+        #     # print("In round:::", round + 1)
+        #
+        #     # --- Preprocessing
+        #
+        #     Y_temp5 = np.zeros((nChanlUses, M), dtype=complex)
+        #
+        #     for i in range(0, nChanlUses_0 + int((3/16) * nChanlUses_harq)):
+        #         Y_temp5[i, :] = Y_final1[i, :]
+        #
+        #     for i in range(nChanlUses_0 + int((3/16) * nChanlUses_harq), nChanlUses_0 + int((4/16) * nChanlUses_harq)):
+        #         Y_temp5[i, :] = Y_final2[i, :]
+        #
+        #     # --- Decode
+        #
+        #     # Checking the status of previous round detected messages
+        #
+        #     if old_msgs is None:
+        #         if msgs4.shape[0] == 0:
+        #             old_msgs = None
+        #         else:
+        #             old_msgs = msgs4
+        #     else:
+        #         if msgs4.shape[0] == 0:
+        #             # old_msgs remain as it is
+        #             old_msgs = old_msgs
+        #         else:
+        #             old_msgs = np.vstack((old_msgs, msgs4))
+        #
+        #     DE5, FA, Khat, Y_detected5, msgs5, Y_decoded5, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp5, DE1 + DE2 + DE3 + DE4, nChanlUses_0 + int((4/16) * nChanlUses_harq), old_msgs)
+        #
+        #     # All detections complete: No more energy left
+        #     if HARQ_exit == 1:
+        #         # print("All possible detections complete")
+        #         break
+        #
+        #     # Current round had successful detections
+        #     elif HARQ_curr == 1:
+        #         #
+        #         # detected_indices = np.array([], dtype=int)
+        #         #
+        #         # for i in range(msgs5.shape[0]):
+        #         #     detected_indices = np.append(detected_indices, int(bin2dec(msgs5[i, 0:Bf])))
+        #
+        #         # print("Round 5 status::", DE1 + DE2 + DE3 + DE4 + DE5, FA, Khat, msgs5.shape)
+        #
+        #         # Pre-processing for next round
+        #
+        #         Y_final1 = Y_final1 - Y_decoded5
+        #         Y_final2 = Y_final2 - Y_detected5
+        #
+        #     # Current round failed (Unable to detect any new users)
+        #     else:
+        #         # print("No new detections: Moving onto next round")
+        #         msgs5 = np.array([], dtype=int)
+        #
+        #     # Performance parameters
+        #
+        #     detections[Iter][round] = DE1 + DE2 + DE3 + DE4 + DE5
+        #     packet_energy[Iter][round] = L2.norm(Y_temp5[nChanlUses_0 + int((3 / 16) * nChanlUses_harq)::, :]) ** 2
+        #
+        # elif round == 5:
+        #
+        #     # print("In round:::", round + 1)
+        #
+        #     # --- Preprocessing
+        #
+        #     Y_temp6 = np.zeros((nChanlUses, M), dtype=complex)
+        #
+        #     for i in range(0, nChanlUses_0 + int((4/16) * nChanlUses_harq)):
+        #         Y_temp6[i, :] = Y_final1[i, :]
+        #
+        #     for i in range(nChanlUses_0 + int((4/16) * nChanlUses_harq), nChanlUses_0 + int((5/16) * nChanlUses_harq)):
+        #         Y_temp6[i, :] = Y_final2[i, :]
+        #
+        #     # --- Decode
+        #
+        #     # Checking the status of previous round detected messages
+        #
+        #     if old_msgs is None:
+        #         if msgs5.shape[0] == 0:
+        #             old_msgs = None
+        #         else:
+        #             old_msgs = msgs5
+        #     else:
+        #         if msgs5.shape[0] == 0:
+        #             # old_msgs remain as it is
+        #             old_msgs = old_msgs
+        #         else:
+        #             old_msgs = np.vstack((old_msgs, msgs5))
+        #
+        #     DE6, FA, Khat, Y_detected6, msgs6, Y_decoded6, HARQ_exit, HARQ_curr = scheme.receiver(Y_temp6, DE1 + DE2 + DE3 + DE4 + DE5, nChanlUses_0 + int((5/16) * nChanlUses_harq), old_msgs)
+        #
+        #     # All detections complete: No more energy left
+        #     if HARQ_exit == 1:
+        #         # print("All possible detections complete")
+        #         break
+        #
+        #     # Current round had successful detections
+        #     elif HARQ_curr == 1:
+        #
+        #         # detected_indices = np.array([], dtype=int)
+        #         #
+        #         # # for i in range(msgs6.shape[0]):
+        #         #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
+        #
+        #         # print("Round 6 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6, FA, Khat, msgs6.shape)
+        #
+        #         # Pre-processing for next round
+        #
+        #         Y_final1 = Y_final1 - Y_decoded6
+        #         Y_final2 = Y_final2 - Y_detected6
+        #
+        #     # Current round failed (Unable to detect any new users)
+        #     else:
+        #         # print("No new detections: Moving onto next round")
+        #         msgs6 = np.array([], dtype=int)
+        #
+        #     # Performance parameters
+        #
+        #     detections[Iter][round] = DE1 + DE2 + DE3 + DE4 + DE5 + DE6
+        #     packet_energy[Iter][round] = L2.norm(Y_temp6[nChanlUses_0 + int((4 / 16) * nChanlUses_harq)::, :]) ** 2
+
+        if round == 6:
+
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -488,7 +488,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -499,7 +499,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 7 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7, FA, Khat, msgs7.shape)
+                # print("Round 7 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7, FA, Khat, msgs7.shape)
 
                 # Pre-processing for next round
 
@@ -508,7 +508,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs7 = np.array([], dtype=int)
 
             # Performance parameters
@@ -518,7 +518,7 @@ for Iter in range(nIter):
 
         elif round == 7:
 
-            print("In round:::", round + 1)
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -550,7 +550,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -561,7 +561,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 8 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8, FA, Khat, msgs8.shape)
+                # print("Round 8 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8, FA, Khat, msgs8.shape)
 
                 # Pre-processing for next round
 
@@ -570,7 +570,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs8 = np.array([], dtype=int)
 
             # Performance parameters
@@ -580,7 +580,7 @@ for Iter in range(nIter):
 
         elif round == 8:
 
-            print("In round:::", round + 1)
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -612,7 +612,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -623,7 +623,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 9 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9, FA, Khat, msgs9.shape)
+                # print("Round 9 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9, FA, Khat, msgs9.shape)
 
                 # Pre-processing for next round
 
@@ -632,7 +632,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs9 = np.array([], dtype=int)
 
             # Performance parameters
@@ -642,7 +642,7 @@ for Iter in range(nIter):
 
         elif round == 9:
 
-            print("In round:::", round + 1)
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -674,7 +674,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -685,7 +685,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 10 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10, FA, Khat, msgs10.shape)
+                # print("Round 10 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10, FA, Khat, msgs10.shape)
 
                 # Pre-processing for next round
 
@@ -694,7 +694,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs10 = np.array([], dtype=int)
 
             # Performance parameters
@@ -704,7 +704,7 @@ for Iter in range(nIter):
 
         elif round == 10:
 
-            print("In round:::", round + 1)
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -736,7 +736,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -747,7 +747,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 11 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11, FA, Khat, msgs11.shape)
+                # print("Round 11 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11, FA, Khat, msgs11.shape)
 
                 # Pre-processing for next round
 
@@ -756,7 +756,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs11 = np.array([], dtype=int)
 
             # Performance parameters
@@ -766,7 +766,7 @@ for Iter in range(nIter):
 
         elif round == 11:
 
-            print("In round:::", round + 1)
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -798,7 +798,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -809,7 +809,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 12 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12, FA, Khat, msgs12.shape)
+                # print("Round 12 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12, FA, Khat, msgs12.shape)
 
                 # Pre-processing for next round
 
@@ -818,7 +818,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs12 = np.array([], dtype=int)
 
             # Performance parameters
@@ -828,7 +828,7 @@ for Iter in range(nIter):
 
         elif round == 12:
 
-            print("In round:::", round + 1)
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -863,7 +863,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -874,8 +874,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 12 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12 + DE13, FA,
-                      Khat, msgs13.shape)
+                # print("Round 12 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12 + DE13, FA, Khat, msgs13.shape)
 
                 # Pre-processing for next round
 
@@ -884,7 +883,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs13 = np.array([], dtype=int)
 
             # Performance parameters
@@ -894,7 +893,7 @@ for Iter in range(nIter):
 
         elif round == 13:
 
-            print("In round:::", round + 1)
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -929,7 +928,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -940,8 +939,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 14 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12 + DE13 + DE14, FA,
-                      Khat, msgs14.shape)
+                # print("Round 14 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12 + DE13 + DE14, FA, Khat, msgs14.shape)
 
                 # Pre-processing for next round
 
@@ -950,7 +948,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs14 = np.array([], dtype=int)
 
             # Performance parameters
@@ -960,7 +958,7 @@ for Iter in range(nIter):
 
         elif round == 14:
 
-            print("In round:::", round + 1)
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -995,7 +993,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -1006,8 +1004,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 15 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12 + DE13 + DE14 + DE15, FA,
-                      Khat, msgs15.shape)
+                # print("Round 15 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12 + DE13 + DE14 + DE15, FA,                      Khat, msgs15.shape)
 
                 # Pre-processing for next round
 
@@ -1016,7 +1013,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs15 = np.array([], dtype=int)
 
             # Performance parameters
@@ -1026,7 +1023,7 @@ for Iter in range(nIter):
 
         elif round == 15:
 
-            print("In round:::", round + 1)
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -1061,7 +1058,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -1072,8 +1069,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 16 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12 + DE13 + DE14 + DE15 + DE16, FA,
-                      Khat, msgs16.shape)
+                # print("Round 16 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12 + DE13 + DE14 + DE15 + DE16, FA, Khat, msgs16.shape)
 
                 # Pre-processing for next round
 
@@ -1082,7 +1078,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs16 = np.array([], dtype=int)
 
             # Performance parameters
@@ -1092,7 +1088,7 @@ for Iter in range(nIter):
 
         elif round == 16:
 
-            print("In round:::", round + 1)
+            # print("In round:::", round + 1)
 
             # --- Preprocessing
 
@@ -1127,7 +1123,7 @@ for Iter in range(nIter):
 
             # All detections complete: No more energy left
             if HARQ_exit == 1:
-                print("All possible detections complete")
+                # print("All possible detections complete")
                 break
 
             # Current round had successful detections
@@ -1138,8 +1134,7 @@ for Iter in range(nIter):
                 # for i in range(msgs6.shape[0]):
                 #     detected_indices = np.append(detected_indices, int(bin2dec(msgs6[i, 0:Bf])))
 
-                print("Round 17 status::",
-                      DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12 + DE13 + DE14 + DE15 + DE16 + DE17, FA, Khat, msgs17.shape)
+                # print("Round 17 status::", DE1 + DE2 + DE3 + DE4 + DE5 + DE6 + DE7 + DE8 + DE9 + DE10 + DE11 + DE12 + DE13 + DE14 + DE15 + DE16 + DE17, FA, Khat, msgs17.shape)
 
                 # Pre-processing for next round
 
@@ -1148,7 +1143,7 @@ for Iter in range(nIter):
 
             # Current round failed (Unable to detect any new users)
             else:
-                print("No new detections: Moving onto next round")
+                # print("No new detections: Moving onto next round")
                 msgs17 = np.array([], dtype=int)
 
             # Performance parameters

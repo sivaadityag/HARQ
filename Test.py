@@ -86,7 +86,7 @@ print(detected_users)
 import matplotlib.pyplot as plt
 
 
-plt.plot(x,detected_users,'-*b', linewidth=1.5)
+plt.plot(x,detected_users,'--or', linewidth=1)
 # plt.axhline(y=5, color='r', linestyle='--')
 plt.xlabel('HARQ rounds')
 plt.ylabel('Emperical CDF')
